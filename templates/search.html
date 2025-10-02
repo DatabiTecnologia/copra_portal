@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Pesquisa de Arquivo</h2>
+
+<form method="GET" class="row g-3 align-items-end">
+  <!-- Busca por COD_FICHA -->
+  <div class="col-md-3">
+    <label for="cod_ficha" class="form-label">Código Ficha</label>
+    <input type="text" class="form-control" id="cod_ficha" name="cod_ficha" value="{{ request.args.get('cod_ficha', '') }}">
+  </div>
+
+  <!-- Busca por NL_NUMERO -->
+  <div class="col-md-3">
+    <label for="nl_numero" class="form-label">Número NL</label>
+    <input type="text" class="form-control" id="nl_numero" name="nl_numero" value="{{ request.args.get('nl_numero', '') }}">
+  </div>
+
+  <!-- Busca por T_CodReferenciaSIAN_ID -->
+  <div class="col-md-3">
+    <label for="t_codref_sian" class="form-label">ID SIAN COD</label>
+    <input type="text" class="form-control" id="t_codref_sian" name="t_codref_sian" value="{{ request.args.get('t_codref_sian', '') }}">
+  </div>
+
+  <!-- Busca por T_codRefPaiSIAN_ID -->
+  <div class="col-md-3">
+    <label for="t_codref_pai" class="form-label">ID SIAN REF PAI</label>
+    <input type="text" class="form-control" id="t_codref_pai" name="t_codref_pai" value="{{ request.args.get('t_codref_pai', '') }}">
+  </div>
+
+  <div class="col-12">
+    <button class="btn btn-primary">Pesquisar</button>
+    <a href="{{ url_for('export_search', 
+                         cod_ficha=request.args.get('cod_ficha', ''),
+                         nl_numero=request.args.get('nl_numero', ''),
+                         t_codref_sian=request.args.get('t_codref_sian', ''),
+                         t_codref_pai=request.args.get('t_codref_pai', '')) }}" 
+       class="btn btn-success ms-2">Exportar para Excel</a>
+  </div>
+</form>
+
+<!-- Card "Não Localizado" -->
+{% if count_nao_localizado is defined %}
+<div class="row mb-4 mt-3">
+  <div class="col-md-4">
+    <div class="card border-warning shadow-sm">
+      <div class="card-body text-center">
+        <h5 class="card-title text-warning">Não Localizado</h5>
+        <p class="display-6 fw-bold">{{ count_nao_localizado }}</p>
+        <a href="{{ url_for('nao_localizado') }}" class="btn btn-outline-warning">Ver itens não localizados</a>
+        <a href="{{ url_for('export_search', query='nao_localizado') }}" class="btn btn-warning mt-2">Exportar Não Localizados</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Tabela de resultados -->
+{% if results %}
+<div class="table-responsive mt-4">
+  <table class="table table-striped table-bordered">
+    <thead class="table-light">
+      <tr>
+        {% for col in results[0].keys() %}
+        <th>{{ col }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in results %}
+      <tr>
+        {% for col in row.values() %}
+        <td>{{ col }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Paginação -->
+<nav>
+  <ul class="pagination">
+    {% if page > 1 %}
+    <li class="page-item">
+      <a class="page-link" href="{{ url_for('search', page=page-1, 
+                                             cod_ficha=request.args.get('cod_ficha', ''),
+                                             nl_numero=request.args.get('nl_numero', ''),
+                                             t_codref_sian=request.args.get('t_codref_sian', ''),
+                                             t_codref_pai=request.args.get('t_codref_pai', '')) }}">Anterior</a>
+    </li>
+    {% endif %}
+    <li class="page-item disabled">
+      <span class="page-link">Página {{ page }} / {{ total_pages }}</span>
+    </li>
+    {% if has_next %}
+    <li class="page-item">
+      <a class="page-link" href="{{ url_for('search', page=page+1, 
+                                             cod_ficha=request.args.get('cod_ficha', ''),
+                                             nl_numero=request.args.get('nl_numero', ''),
+                                             t_codref_sian=request.args.get('t_codref_sian', ''),
+                                             t_codref_pai=request.args.get('t_codref_pai', '')) }}">Próxima</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,9 @@
+Flask==2.3.3
+mysql-connector-python==8.1.0
+pyodbc==4.0.39
+pandas==2.1.1
+openpyxl==3.1.2
+Werkzeug==2.3.6
+plotly==5.15.0
+bcrypt==4.0.1
+xlsxwriter

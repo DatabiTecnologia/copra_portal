@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="bg-white rounded shadow-sm mb-4 p-4" style="font-family: 'Roboto', Arial, sans-serif;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h2 class="fw-bold text-primary" style="letter-spacing:1px;">Bem-vindo, {{ user.username }}</h2>
+      <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger">Sair</a>
+    </div>
+    <hr>
+    <div>
+      <h4 class="fw-bold text-secondary mb-3">Dashboard inicial</h4>
+      <p class="mb-3">Aqui você poderá acessar as funcionalidades do sistema:</p>
+      <ul class="list-group list-group-flush">
+        <li class="list-group-item">Upload de dados para o banco</li>
+        <li class="list-group-item">Pesquisa de arquivos e exportação para Excel</li>
+        <li class="list-group-item">Relatórios e insights gráficos</li>
+      </ul>
+    </div>
+  </div>
+{% endblock %}

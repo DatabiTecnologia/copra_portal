@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="bg-white rounded shadow-sm mb-4 p-4">
+    <h2 class="fw-bold text-primary mb-4" style="letter-spacing:1px;">
+      Editar Dados – {{ tabela|upper }}
+    </h2>
+
+    <!-- Formulário de busca -->
+    <form method="GET" class="d-flex gap-3 mb-4">
+      <input type="text" name="search" value="{{ search_value }}" 
+             placeholder="Buscar por {{ search_field }}" class="form-control">
+      <button type="submit" class="btn btn-outline-primary">Buscar</button>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-striped table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            {% for col in colunas %}
+              <th>{{ col }}</th>
+            {% endfor %}
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <form method="POST" class="d-flex">
+              {% for i, col in enumerate(colunas) %}
+                <td>
+                  <input type="text" name="valor" value="{{ row[i] }}" class="form-control">
+                  <input type="hidden" name="coluna" value="{{ col }}">
+                </td>
+              {% endfor %}
+              {% if id_index is not none %}
+                <input type="hidden" name="id" value="{{ row[id_index] }}">
+              {% endif %}
+              <td>
+                <button type="submit" class="btn btn-sm btn-success">Salvar</button>
+              </td>
+            </form>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

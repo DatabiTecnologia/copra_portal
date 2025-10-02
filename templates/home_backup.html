@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal Copra - Home</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body { display:flex; height:100vh; margin:0; background:#f8f9fa; }
+.sidebar { width:250px; background:#343a40; color:#fff; padding:20px; display:flex; flex-direction:column; }
+.sidebar h4 { text-align:center; margin-bottom:30px; }
+.sidebar a { color:#adb5bd; text-decoration:none; padding:10px; border-radius:6px; display:block; }
+.sidebar a:hover { background:#495057; color:#fff; }
+.content { flex:1; padding:20px; }
+.topbar { display:flex; justify-content:space-between; align-items:center; background:#fff; padding:10px 20px; border-radius:10px; margin-bottom:20px; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+.btn-logout { font-size:0.9rem; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+    <h4>Portal Copa</h4>
+    <a href="{{ url_for('home') }}">🏠 Home</a>
+    <a href="{{ url_for('upload') }}">📂 Upload de Dados</a>
+    <a href="{{ url_for('search') }}">🔍 Pesquisa de Arquivos</a>
+    <a href="{{ url_for('insights') }}">📊 Insights</a>
+
+    {% if user.is_admin == 1 %}
+    <hr>
+    <h6>Administração</h6>
+    <a href="{{ url_for('permissions') }}">🔑 Permissões de Grupos</a>
+    {% endif %}
+</div>
+
+<div class="content">
+    <div class="topbar">
+        <h5>Bem-vindo, {{ user.username }}</h5>
+        <a href="{{ url_for('logout') }}" class="btn btn-sm btn-danger btn-logout">Sair</a>
+    </div>
+    <div class="card p-4 shadow-sm">
+        <h4>Dashboard inicial</h4>
+        <p>Aqui você poderá acessar as funcionalidades do sistema:</p>
+        <ul>
+            <li>Upload de dados para o banco</li>
+            <li>Pesquisa de arquivos e exportação para Excel</li>
+            <li>Relatórios e insights gráficos</li>
+        </ul>
+    </div>
+</div>
+</body>
+</html>

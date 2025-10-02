@@ -1,0 +1,52 @@
+CREATE TABLE codes_dijud (
+    codigo_ficha VARCHAR(50),
+    doc_jud VARCHAR(255),
+    fundo_colecao_titulo TEXT,
+    codigo_referencia VARCHAR(100),
+    assunto TEXT,
+    numero VARCHAR(50),
+    caixa VARCHAR(50),
+    maco VARCHAR(50),
+    gal VARCHAR(10),
+    observacao TEXT,
+    publicado VARCHAR(10)
+);
+
+CREATE TABLE codes_didop (
+    fundo_colecao TEXT,
+    titulo TEXT,
+    codigo_referencia VARCHAR(150),
+    caixa VARCHAR(50),
+    pasta VARCHAR(50),
+    observacao TEXT
+);
+
+CREATE TABLE codes_dipex (
+    fundo TEXT,
+    fundo2 TEXT,
+    divisao VARCHAR(100),
+    codigo_referencia VARCHAR(150),
+    notacao VARCHAR(100),
+    observacao_dipex TEXT,
+    informacao_complementar TEXT,
+    observacao TEXT,
+    requisicao VARCHAR(50),
+    ano VARCHAR(10)
+);
+
+CREATE TABLE codac_didas (
+    fundo_colecao TEXT,
+    titulo TEXT,
+    codigo_referencia VARCHAR(150),
+    observacao TEXT
+);
+
+CREATE TABLE codac_didoc (
+    fundo_colecao TEXT,
+    titulo TEXT,
+    codigo_referencia VARCHAR(150),
+    observacao TEXT
+);
+
+
+

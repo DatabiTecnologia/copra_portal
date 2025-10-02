@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="bg-white rounded shadow-sm mb-4 p-4">
+    <h2 class="fw-bold text-primary mb-4" style="letter-spacing:1px;">Painel de Permissões</h2>
+    <div class="card p-4 mb-4">
+      <h4 class="mb-4">Gerenciar Permissões de Visualização</h4>
+      <!-- Abas para páginas -->
+      <ul class="nav nav-tabs" id="pageTabs" role="tablist">
+        {% for page in pages %}
+        <li class="nav-item" role="presentation">
+          <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ page }}" data-bs-toggle="tab" data-bs-target="#content-{{ page }}" type="button" role="tab">{{ page.capitalize() }}</button>
+        </li>
+        {% endfor %}
+      </ul>
+      <div class="tab-content mt-3">
+        {% for page in pages %}
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="content-{{ page }}" role="tabpanel">
+          {% for title in all_titles %}
+          {% set checked = title in page_permissions.get(page, []) %}
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="{{ page }}_{{ loop.index }}" data-page="{{ page }}" data-title="{{ title }}" {% if checked %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="{{ page }}_{{ loop.index }}">{{ title }}</label>
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="mt-4 text-end">
+        <button id="save-btn" class="btn btn-success">Salvar Permissões</button>
+      </div>
+      <div id="feedback" class="feedback"></div>
+    </div>
+  </div>
+  <script>
+    document.getElementById('save-btn').addEventListener('click', function() {
+      const data = {};
+      document.querySelectorAll('.form-check-input').forEach(el => {
+        const page = el.dataset.page;
+        const title = el.dataset.title;
+        if (!data[page]) data[page] = [];
+        if (el.checked) data[page].push(title);
+      });
+      fetch('/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(data).toString()
+      })
+      .then(response => response.json())
+      .then(result => {
+        const feedback = document.getElementById('feedback');
+        if(result.success){
+          feedback.innerHTML = '<div class="alert alert-success">' + result.message + '</div>';
+        } else {
+          feedback.innerHTML = '<div class="alert alert-danger">' + result.message + '</div>';
+        }
+      })
+      .catch(err => {
+        document.getElementById('feedback').innerHTML = '<div class="alert alert-danger">Erro ao salvar permissões.</div>';
+        console.error(err);
+      });
+    });
+  </script>
+{% endblock %}

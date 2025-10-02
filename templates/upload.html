@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="bg-white rounded shadow-sm mb-4 p-4">
+    <h2 class="fw-bold text-primary mb-4" style="letter-spacing:1px;">
+      Upload de Dados
+    </h2>
+
+    <!-- Upload de arquivo -->
+    <form method="POST" enctype="multipart/form-data" class="d-flex flex-column gap-3 mb-4">
+      <input type="file" name="file" class="form-control" required>
+      <button type="submit" class="btn btn-primary align-self-start">Enviar</button>
+    </form>
+
+    <!-- Selecionar tabela para edição -->
+    <div class="border-top pt-4">
+      <h5 class="fw-bold text-secondary mb-3">Editar registros existentes</h5>
+      <form method="GET" action="{{ url_for('editar_redirect') }}" class="d-flex gap-3">
+        <select name="tabela" class="form-select" required>
+          <option value="" disabled selected>Selecione a tabela</option>
+          <option value="codes_dijud">CODES_DIJUD</option>
+          <option value="codes_didop">CODES_DIDOP</option>
+          <option value="codes_dipex">CODES_DIPEX</option>
+          <option value="codac_didas">CODAC_DIDAS</option>
+          <option value="codac_didoc">CODAC_DIDOC</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Ir para edição</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}
