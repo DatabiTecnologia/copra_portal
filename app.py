@@ -241,10 +241,11 @@ def editar(tabela):
     conn = get_pg_connection()
     cur = conn.cursor()
 
-    # Campos de busca
+    # Campo de busca depende da tabela
     search_field = "codigo_ficha_docjud" if tabela == "codes_dijud" else "fundo_colecao"
     search_value = request.args.get('search', '').strip()
 
+    # POST → atualização de registro
     if request.method == 'POST':
         record_id = request.form['id']
         coluna = request.form['coluna']
@@ -260,7 +261,10 @@ def editar(tabela):
 
     # GET → busca registros
     if search_value:
-        cur.execute(f"SELECT * FROM {tabela} WHERE {search_field} ILIKE %s ORDER BY id LIMIT 50", (f"%{search_value}%",))
+        cur.execute(
+            f"SELECT * FROM {tabela} WHERE {search_field} ILIKE %s ORDER BY id LIMIT 50",
+            (f"%{search_value}%",)
+        )
     else:
         cur.execute(f"SELECT * FROM {tabela} ORDER BY id LIMIT 50")
 
@@ -270,19 +274,32 @@ def editar(tabela):
     cur.close()
     conn.close()
 
-    # Remove id e updated_at da exibição
-    if "id" in colunas: 
+    # índice do id
+    if "id" in colunas:
         id_index = colunas.index("id")
     else:
         id_index = None
 
+    # colunas visíveis (sem id e updated_at)
     display_cols = [c for c in colunas if c not in ("id", "updated_at")]
+
+    # índices correspondentes às colunas visíveis
+    col_index_map = [colunas.index(c) for c in display_cols]
+
+    # linhas de dados visíveis
+    rows_display = [
+        [row[i] for i in col_index_map] for row in rows
+    ]
+
+    # ids separados (para hidden input)
+    ids = [row[id_index] for row in rows] if id_index is not None else []
 
     return render_template(
         'editar.html',
         tabela=tabela,
         colunas=display_cols,
-        rows=rows,
+        rows=rows_display,
+        ids=ids,
         search_field=search_field,
         search_value=search_value,
         id_index=id_index

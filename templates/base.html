@@ -94,7 +94,7 @@
   <!-- Menu lateral fixo -->
   <div class="sidebar">
     <div class="text-center mb-4">
-      <img src="https://upload.wikimedia.org/wikipedia/commons/5/5d/Logo_Arquivo_Nacional_-_MGISP.svg" alt="Logo">
+      <<img src="{{ url_for('static', filename='logoan-circulo_small.png') }}" alt="Logo">
     </div>
     {% for page, label in get_user_menu() %}
       <a href="{{ url_for(page) }}" class="{% if request.endpoint == page %}active{% endif %}">{{ label }}</a>

@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base.html" %} 
 {% block content %}
   <div class="bg-white rounded shadow-sm mb-4 p-4">
     <h2 class="fw-bold text-primary mb-4" style="letter-spacing:1px;">
@@ -26,14 +26,14 @@
           {% for row in rows %}
           <tr>
             <form method="POST" class="d-flex">
-              {% for i, col in enumerate(colunas) %}
+              {% for col in colunas %}
                 <td>
-                  <input type="text" name="valor" value="{{ row[i] }}" class="form-control">
+                  <input type="text" name="valor" value="{{ row[loop.index0] }}" class="form-control">
                   <input type="hidden" name="coluna" value="{{ col }}">
                 </td>
               {% endfor %}
               {% if id_index is not none %}
-                <input type="hidden" name="id" value="{{ row[id_index] }}">
+                <input type="hidden" name="id" value="{{ ids[loop.index0] }}">
               {% endif %}
               <td>
                 <button type="submit" class="btn btn-sm btn-success">Salvar</button>
