@@ -9,8 +9,6 @@ import pandas as pd
 from flask import send_file
 import io
 import psycopg2
-import os
-import re
 import unicodedata
 
 app = Flask(__name__)
@@ -141,10 +139,6 @@ TABELAS_VALIDAS = {
     "CODAC_DIDOC": "codac_didoc"
 }
 
-# Mapeamento por tabela
-
-
-#upload_bp = Blueprint("upload", __name__)
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
@@ -305,13 +299,6 @@ def editar(tabela):
         id_index=id_index
     )
 
-
-
-#@app.route('/search')
-#def search():
-#    if not check_access('search'):
-#        return "Acesso negado", 403
-#    return render_template('search.html')
 
 @app.route('/insights')
 def insights():
