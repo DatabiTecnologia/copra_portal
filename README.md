@@ -100,8 +100,7 @@ depois
 python app.py    
 
 
-![Pagina de entrada](login.png)
-![Pagina home](home.png)
-![pagina de upload e edição de dados](upload.png)
-![Pagina de pesquisa e extração de dados para excel](pesquisa.png)
-![Pagina de gerecimento de usuario](permissoes.png)
+![Pagina de entrada](prints_images/login.png)
+![Pagina home](prints_images/home.png)
+![Pagina de upload e edição de dados](prints_images/upload.png)
+![Pagina de pesquisa e extração de dados para excel](prints_images/pesquisa.png)
