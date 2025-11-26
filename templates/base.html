@@ -4,136 +4,199 @@
   <meta charset="UTF-8">
   <title>{{ title if title else "Sistema" }}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- Fonte gov.br recomendada -->
   <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
-    <style>
-    body {
-        font-family: 'Roboto', Arial, sans-serif;
-        background-color: #F5F6FA;
-        overflow-x: hidden;
-    }
-    .sidebar {
-        height: 100vh;
-        width: 250px;
-        position: fixed;
-        top: 0;
-        left: 0;
-        background-color: #ffffff; /* Azul gov.br */ /*cor de fundo do menu */
-        padding-top: 80px;
-        color: #fff;
-        box-shadow: 2px 0 8px rgba(19,81,180,0.08);
-    }
-    .sidebar a {
-        display: block;
-        color: #1351B4; /* Branco gov.br */ /*cor da letra do menu */
-        padding: 15px 24px;
-        text-decoration: none;
-        font-weight: 500;
-        letter-spacing: 0.5px;
-        border-left: 4px solid transparent;
-        transition: background 0.3s, color 0.3s, border-left 0.3s;
-    }
-    .sidebar a:hover {
-        background-color: #5f97f1; /* Hover gov.br */
-        color: #ffffff; /* Amarelo gov.br */ /*letra do menu ao passar o mouse */
-        border-left: 4px solid #FFD600; /* Amarelo gov.br */ /*borda do menu ao passar o mouse */
-        /* border-radius: 0 10px 10px 0 */;
-    }
-    .sidebar .active {
-        background-color: #1351B4; /* Amarelo gov.br */ /*1351B4 */
-        color: #ffffff; /* Azul gov.br */ /*letra do menu ativo */
-        border-left: 4px solid #030303;/* Azul gov.br */ /*borda do menu ativo */
-        /* border-radius: 0 10px 10px 0 */;
-        font-weight: bold;
-    }
-    .sidebar img {
-        background: #fff;
-        border-radius: 50%;
-        padding: 8px;
-        height: 56px;
-        margin-bottom: 16px;
-        box-shadow: 0 2px 8px rgba(19,81,180,0.08);
-    }
-    .content {
-        margin-left: 250px;
-        padding: 20px;
-    }
-    .govbr-header {
-        background-color: #fafbfc;
-        color: #1351B4;
-        padding: 12px 32px;
-        display: flex;
-        align-items: center;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        z-index: 1000;
-        height: 60px;
-        box-shadow: 0 2px 8px rgba(19,81,180,0.08);
-    }
-    .govbr-header img {
-        height: 32px;
-        margin-right: 16px;
-    }
-    .govbr-header-title {
-        font-size: 1.25rem;
-        font-weight: 700;
-        letter-spacing: 1px;
-    }
-    </style>
+
+<style>
+body {
+    font-family: 'Roboto', Arial, sans-serif;
+    background-color: #F5F6FA;
+    overflow-x: hidden;
+}
+
+/* ===== MENU LATERAL ===== */
+.sidebar {
+    height: 100vh;
+    width: 250px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    background-color: #ffffff;
+    padding-top: 80px;
+    box-shadow: 2px 0 8px rgba(19,81,180,0.08);
+    transition: width .3s;
+    overflow: hidden;
+}
+
+/* COLAPSADO */
+.sidebar.collapsed {
+    width: 70px;
+}
+
+.sidebar img {
+    background: #fff;
+    border-radius: 50%;
+    padding: 8px;
+    height: 56px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(19,81,180,0.08);
+    transition: opacity .3s;
+}
+
+.sidebar.collapsed img {
+    opacity: 0;
+}
+
+/* LINKS DO MENU */
+.sidebar a {
+    display: block;
+    color: #1351B4;
+    padding: 15px 24px;
+    text-decoration: none;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border-left: 4px solid transparent;
+    transition: background 0.3s, color 0.3s, border-left 0.3s, font-size .3s;
+}
+
+/* Ao colapsar, remove texto */
+.sidebar.collapsed a {
+    font-size: 0;
+    padding-left: 20px;
+}
+
+/* ESTILOS HOVER / ATIVO */
+.sidebar a:hover {
+    background-color: #5f97f1;
+    color: #ffffff;
+    border-left: 4px solid #FFD600;
+}
+.sidebar .active {
+    background-color: #1351B4;
+    color: #ffffff;
+    border-left: 4px solid #030303;
+    font-weight: bold;
+}
+
+/* ===== CONTEÚDO ===== */
+.content {
+    margin-left: 250px;
+    padding: 20px;
+    transition: margin-left .3s;
+    padding-top: 80px;
+}
+.content.collapsed {
+    margin-left: 80px;
+}
+
+/* ===== BOTÃO DE TOGGLE ===== */
+#toggleMenu {
+    position: fixed;
+    top: 60px;
+    left: 210px;
+    z-index: 2000;
+    transition: left .3s;
+}
+#toggleMenu.collapsed {
+    left: 65px;
+}
+
+/* CABEÇALHO */
+.govbr-header {
+    background-color: #fafbfc;
+    color: #1351B4;
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1000;
+    height: 60px;
+    box-shadow: 0 2px 8px rgba(19,81,180,0.08);
+}
+.govbr-header img {
+    height: 32px;
+    margin-right: 16px;
+}
+.govbr-header-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+</style>
+
 </head>
 
 <body>
-  <!-- Cabeçalho gov.br -->
-  <header class="govbr-header">
-    <img src="https://www.gov.br/governodigital/pt-br/acessibilidade-e-usuario/atendimento-gov.br/imagens/gov-br_logo-svg.png" alt="gov.br">
-    <span class="govbr-header-title">Sistema COPRA</span>
-  </header>
 
-  <!-- Menu lateral fixo -->
-  <div class="sidebar">
-    <div class="text-center mb-4">
-      <img src="{{ url_for('static', filename='logoan-circulo_small.png') }}" 
-     alt="Logo" 
-     style="width: 150px; height: auto;">
+<!-- ===== BOTÃO PARA ESCONDER MENU ===== -->
+<button id="toggleMenu" class="btn btn-primary">☰</button>
+
+<!-- CABEÇALHO -->
+<header class="govbr-header">
+  <img src="https://www.gov.br/governodigital/pt-br/acessibilidade-e-usuario/atendimento-gov.br/imagens/gov-br_logo-svg.png" alt="gov.br">
+  <span class="govbr-header-title">Sistema COPRA</span>
+</header>
+
+<!-- MENU LATERAL -->
+<div class="sidebar" id="sidebar">
+  <div class="text-center mb-4">
+    <img src="{{ url_for('static', filename='logoan-circulo_small.png') }}" 
+    alt="Logo" style="width: 150px; height: auto;">
+  </div>
+
+  {% for page, label in get_user_menu() %}
+    <a href="{{ url_for(page) }}" class="{% if request.endpoint == page %}active{% endif %}">{{ label }}</a>
+  {% endfor %}
+  
+  <a href="{{ url_for('logout') }}">Sair</a>
+</div>
+
+<!-- CONTEÚDO -->
+<div class="content" id="content">
+  {% block content %}{% endblock %}
+</div>
+
+<!-- ALERTAS -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+  {% for category, message in messages %}
+    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
-    {% for page, label in get_user_menu() %}
-      <a href="{{ url_for(page) }}" class="{% if request.endpoint == page %}active{% endif %}">{{ label }}</a>
-    {% endfor %}
-    <a href="{{ url_for('logout') }}">Sair</a>
-  </div>
-
-   <!-- Conteúdo principal -->
-  <div class="content" style="padding-top: 80px;">
-    {% block content %}{% endblock %}
-  </div>
-
-  {% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    {% for category, message in messages %}
-      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-    {% endfor %}
-  {% endif %}
+  {% endfor %}
+{% endif %}
 {% endwith %}
 
-  <!-- Rodapé gov.br -->
-  <footer class="bg-light text-center text-muted py-3" style="margin-left:250px; border-top:1px solid #e5e5e5;">
-    <div class="container">
-      <img src="https://www.gov.br/governodigital/pt-br/acessibilidade-e-usuario/atendimento-gov.br/imagens/gov-br_logo-svg.png" alt="gov.br" style="height:28px; margin-bottom:8px;">
-      <div>
-        <small>
-          Este é um serviço do Governo Federal.<br>
-          <a href="https://www.gov.br/" target="_blank" rel="noopener" style="color:#1351B4;">Acesse gov.br</a>
-        </small>
-      </div>
+<!-- RODAPÉ -->
+<footer class="bg-light text-center text-muted py-3" id="footer" style="margin-left:250px; border-top:1px solid #e5e5e5; transition: margin-left .3s;">
+  <div class="container">
+    <img src="https://www.gov.br/governodigital/pt-br/acessibilidade-e-usuario/atendimento-gov.br/imagens/gov-br_logo-svg.png" alt="gov.br" style="height:28px; margin-bottom:8px;">
+    <div>
+      <small>
+        Este é um serviço do Governo Federal.<br>
+        <a href="https://www.gov.br/" target="_blank" rel="noopener" style="color:#1351B4;">Acesse gov.br</a>
+      </small>
     </div>
-  </footer>
-  
+  </div>
+</footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const toggleBtn = document.getElementById("toggleMenu");
+const sidebar = document.getElementById("sidebar");
+const content = document.getElementById("content");
+const footer = document.getElementById("footer");
+
+toggleBtn.addEventListener("click", () => {
+    sidebar.classList.toggle("collapsed");
+    content.classList.toggle("collapsed");
+    footer.style.marginLeft = sidebar.classList.contains("collapsed") ? "80px" : "250px";
+    toggleBtn.classList.toggle("collapsed");
+});
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

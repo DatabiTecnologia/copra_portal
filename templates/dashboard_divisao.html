@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Dashboard por Divisão{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+
+  <!-- 🔹 Cabeçalho com botão à esquerda e logo à direita -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <a href="{{ url_for('dashboard_divisao') }}" class="btn btn-outline-primary">
+      ⬅️ Voltar para Dashboard por divisão
+    </a>
+    <img src="{{ url_for('static', filename='logo_empresa.png') }}" alt="Logo" style="height: 100px;">
+  </div>
+
+  <h2 class="text-center mb-4"> Dashboard por Divisão</h2>
+
+  <form method="POST" class="mb-4 text-center">
+    <div class="row justify-content-center">
+      <div class="col-md-6">
+        <select name="divisao" class="form-select" required>
+          <option value="">Selecione uma divisão</option>
+          {% for d in divisoes %}
+          <option value="{{ d }}" {% if divisao_selecionada == d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">Carregar</button>
+      </div>
+    </div>
+  </form>
+
+  {% if mensagem %}
+  <div class="alert alert-warning text-center">{{ mensagem }}</div>
+  {% endif %}
+
+  {% if dados_divisao and not mensagem %}
+  <div class="row text-center mb-4">
+    <div class="col-md-3"><div class="card p-3 bg-light shadow-sm"><h6>Total de Registros</h6><h3>{{ dados_divisao|length }}</h3></div></div>
+    <div class="col-md-3"><div class="card p-3 bg-light shadow-sm"><h6>Não Localizados</h6><h3>{{ dados_divisao|selectattr('8','equalto','Não localizado')|list|length }}</h3></div></div>
+    <div class="col-md-3"><div class="card p-3 bg-light shadow-sm"><h6>Localizados</h6><h3>{{ dados_divisao|length - (dados_divisao|selectattr('8','equalto','Não localizado')|list|length) }}</h3></div></div>
+    <div class="col-md-3">
+      <div class="card p-3 bg-light shadow-sm">
+        <h6>% Não Localizados</h6>
+        {% set perc = (dados_divisao|selectattr('8','equalto','Não localizado')|list|length / dados_divisao|length * 100) | round(1) %}
+        <h3>{{ perc }}%</h3>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6"><div class="card p-3 mb-4 shadow-sm"><h6 class="text-center">Evolução dos Não Localizados (por Data)</h6><canvas id="chartEvolucao" height="120"></canvas></div></div>
+    <div class="col-md-6"><div class="card p-3 mb-4 shadow-sm"><h6 class="text-center">Distribuição das Notações (Top 10)</h6><canvas id="chartNotacoes" height="120"></canvas></div></div>
+  </div>
+
+  <div class="card p-3 mb-4 shadow-sm">
+    <h6 class="text-center">% Localizados vs Não Localizados</h6>
+    <canvas id="chartLocalizacao" height="150"></canvas>
+  </div>
+  {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  {% if dados_divisao %}
+  const dadosDivisao = {{ dados_divisao | tojson }};
+  const porData = {};
+  const porNotacao = {};
+  let totalNaoLocalizado = 0, totalLocalizado = 0;
+
+  dadosDivisao.forEach(row => {
+    const data = row[6] ? row[6].split('T')[0] : null;
+    const notacao = row[4] || 'Sem notação';
+    const obs = (row[8] || '').toLowerCase();
+
+    if (data) {
+      if (!porData[data]) porData[data] = 0;
+      if (obs.includes('não localizado')) porData[data]++;
+    }
+    porNotacao[notacao] = (porNotacao[notacao] || 0) + 1;
+    obs.includes('não localizado') ? totalNaoLocalizado++ : totalLocalizado++;
+  });
+
+  const datas = Object.keys(porData).sort();
+  const naoLocalizadosPorData = datas.map(d => porData[d]);
+  const notacoesOrdenadas = Object.entries(porNotacao).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+  new Chart(document.getElementById('chartEvolucao'), {
+    type:'line', data:{labels:datas,datasets:[{label:'Não localizados',data:naoLocalizadosPorData,borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.2)',tension:0.3,fill:true}]},
+    options:{responsive:true,plugins:{legend:{display:false}}}
+  });
+
+  new Chart(document.getElementById('chartNotacoes'), {
+    type:'bar', data:{labels:notacoesOrdenadas.map(n=>n[0]),datasets:[{label:'Quantidade',data:notacoesOrdenadas.map(n=>n[1]),backgroundColor:'#0d6efd'}]},
+    options:{responsive:true,plugins:{legend:{display:false}}}
+  });
+
+  new Chart(document.getElementById('chartLocalizacao'), {
+    type:'pie', data:{labels:['Localizado','Não localizado'],datasets:[{data:[totalLocalizado,totalNaoLocalizado],backgroundColor:['#198754','#dc3545']}]},
+    options:{responsive:true}
+  });
+  {% endif %}
+</script>
+{% endblock %}

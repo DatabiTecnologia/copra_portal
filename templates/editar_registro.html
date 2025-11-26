@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Editar Registro{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow-sm border-0 rounded-3">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+      <h4 class="mb-0">✏️ Editar Registro #{{ registro.id }}</h4>
+      <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-light btn-sm">⬅️ Voltar</a>
+    </div>
+
+    <div class="card-body">
+      <form method="POST" class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Fundo / Coleção</label>
+          <input type="text" name="fundo_colecao" class="form-control" value="{{ registro.fundo_colecao or '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Título / Conteúdo</label>
+          <input type="text" name="titulo_conteudo" class="form-control" value="{{ registro.titulo_conteudo or '' }}">
+        </div>
+
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Código de Referência</label>
+          <input type="text" name="codigo_referencia" class="form-control" value="{{ registro.codigo_referencia or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Notação</label>
+          <input type="text" name="notacao" class="form-control" value="{{ registro.notacao or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Localização Física</label>
+          <input type="text" name="localizacao_fisica" class="form-control" value="{{ registro.localizacao_fisica or '' }}">
+        </div>
+
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Data do Registro</label>
+          <input type="date" name="data_registro" class="form-control"
+                 value="{{ registro.data_registro if registro.data_registro else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Data da Localização</label>
+          <input type="date" name="data_localizacao" class="form-control"
+                 value="{{ registro.data_localizacao if registro.data_localizacao else '' }}">
+        </div>
+
+        <div class="col-12">
+          <label class="form-label fw-semibold">Observações</label>
+          <textarea name="observacoes" class="form-control" rows="3">{{ registro.observacoes or '' }}</textarea>
+        </div>
+
+        <div class="col-12">
+          <label class="form-label fw-semibold">Divisão</label>
+          <input type="text" name="divisao" class="form-control" value="{{ registro.divisao or '' }}">
+        </div>
+
+        <div class="col-12 d-flex justify-content-between mt-3">
+          <button type="submit" class="btn btn-success px-4">💾 Salvar Alterações</button>
+          <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-secondary px-4">Cancelar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

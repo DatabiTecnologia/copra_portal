@@ -1,19 +1,141 @@
 {% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
 {% block content %}
-  <div class="bg-white rounded shadow-sm mb-4 p-4" style="font-family: 'Roboto', Arial, sans-serif;">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2 class="fw-bold text-primary" style="letter-spacing:1px;">Bem-vindo, {{ user.username }}</h2>
-      <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger">Sair</a>
+<div class="container mt-4">
+
+  <!-- 🔹 Cabeçalho com botão à esquerda e logo à direita -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('dashboard_divisao') }}" class="btn btn-outline-primary">
+            Ver por Divisão
+        </a>
+        <a href="{{ url_for('inserir_dados') }}" class="btn btn-outline-primary">
+            Inserir dados
+        </a>
+        <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-outline-primary">
+            Editar registro
+        </a>
     </div>
-    <hr>
-    <div>
-      <h4 class="fw-bold text-secondary mb-3">Dashboard inicial</h4>
-      <p class="mb-3">Aqui você poderá acessar as funcionalidades do sistema:</p>
-      <ul class="list-group list-group-flush">
-        <li class="list-group-item">Upload de dados para o banco</li>
-        <li class="list-group-item">Pesquisa de arquivos e exportação para Excel</li>
-        <li class="list-group-item">Relatórios e insights gráficos</li>
-      </ul>
+    <img src="{{ url_for('static', filename='logo_empresa.png') }}" alt="Logo" style="height: 100px;">
+  </div>
+
+  <h1 class="mb-4 text-primary">Dashboard - Panorama Geral</h1>
+
+  <!-- 🔹 Cards principais -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Total de Registros</h5>
+          <h2 class="text-primary">{{ total_registros }}</h2>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Não Localizados</h5>
+          <h2 class="text-danger">{{ total_nao_localizado }}</h2>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">% Não Localizado</h5>
+          <h2 class="text-warning">{{ percentual_nao_localizado }}%</h2>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Divisões</h5>
+          <h2 class="text-success">{{ total_divisoes }}</h2>
+        </div>
+      </div>
     </div>
   </div>
+
+  <!-- 🔹 Gráfico 1 -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h5 class="card-title">📍 Percentual de Não Localizados por Divisão</h5>
+      <canvas id="chartDivisao" height="80"></canvas>
+    </div>
+  </div>
+
+  <!-- 🔹 Gráficos lado a lado -->
+  <div class="row">
+    <div class="col-md-6 mb-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <h5 class="card-title">📅 Evolução dos Não Localizados (por Data do Registro)</h5>
+          <canvas id="chartEvolucao"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <h5 class="card-title">🏷️ Distribuição das Notações (Top 10)</h5>
+          <canvas id="chartNotacao"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const ctxDiv = document.getElementById('chartDivisao');
+  new Chart(ctxDiv, {
+    type: 'bar',
+    data: {
+      labels: {{ divisoes|tojson }},
+      datasets: [{
+        label: '% Não Localizado',
+        data: {{ percentual_divisao|tojson }},
+        backgroundColor: '#007bff'
+      }]
+    },
+    options: { scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } }
+  });
+
+  const ctxEvo = document.getElementById('chartEvolucao');
+  new Chart(ctxEvo, {
+    type: 'line',
+    data: {
+      labels: {{ datas|tojson }},
+      datasets: [{
+        label: 'Não Localizados',
+        data: {{ qtd_nao_localizado_data|tojson }},
+        borderColor: '#dc3545',
+        tension: 0.3,
+        fill: false
+      }]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero: true },
+        x: { ticks: { maxRotation: 45, minRotation: 45 } }
+      }
+    }
+  });
+
+  const ctxNot = document.getElementById('chartNotacao');
+  new Chart(ctxNot, {
+    type: 'pie',
+    data: {
+      labels: {{ notacoes|tojson }},
+      datasets: [{
+        data: {{ qtd_notacoes|tojson }},
+        backgroundColor: ['#007bff','#28a745','#ffc107','#dc3545','#6f42c1','#20c997','#17a2b8','#fd7e14','#6610f2','#e83e8c']
+      }]
+    }
+  });
+</script>
 {% endblock %}
