@@ -8,18 +8,18 @@
       <ul class="nav nav-tabs" id="pageTabs" role="tablist">
         {% for page in pages %}
         <li class="nav-item" role="presentation">
-          <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ page }}" data-bs-toggle="tab" data-bs-target="#content-{{ page }}" type="button" role="tab">{{ page.capitalize() }}</button>
+          <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ page }}" data-bs-toggle="tab" data-bs-target="#content-{{ page }}" type="button" role="tab">{{ page_labels.get(page, page.capitalize()) }}</button>
         </li>
         {% endfor %}
       </ul>
       <div class="tab-content mt-3">
         {% for page in pages %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="content-{{ page }}" role="tabpanel">
-          {% for title in all_titles %}
-          {% set checked = title in page_permissions.get(page, []) %}
+          {% for username in all_usernames %}
+          {% set checked = username in page_permissions.get(page, []) %}
           <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="{{ page }}_{{ loop.index }}" data-page="{{ page }}" data-title="{{ title }}" {% if checked %}checked{% endif %}>
-            <label class="form-check-label fw-semibold" for="{{ page }}_{{ loop.index }}">{{ title }}</label>
+            <input class="form-check-input" type="checkbox" id="{{ page }}_{{ loop.index }}" data-page="{{ page }}" data-username="{{ username }}" {% if checked %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="{{ page }}_{{ loop.index }}">{{ username }}</label>
           </div>
           {% endfor %}
         </div>
@@ -36,9 +36,9 @@
       const data = {};
       document.querySelectorAll('.form-check-input').forEach(el => {
         const page = el.dataset.page;
-        const title = el.dataset.title;
+        const username = el.dataset.username;
         if (!data[page]) data[page] = [];
-        if (el.checked) data[page].push(title);
+        if (el.checked) data[page].push(username);
       });
       fetch('/permissions', {
         method: 'POST',

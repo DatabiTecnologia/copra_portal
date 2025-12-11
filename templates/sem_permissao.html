@@ -1,0 +1,43 @@
+{% extends "base.html" %} 
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-center" style="min-height: 70vh;">
+  <div class="d-flex align-items-start bg-white shadow-sm rounded p-4" style="max-width: 1900px;">
+      
+      <!-- IMAGEM NA LATERAL ESQUERDA -->
+      <img 
+          src="https://www.gov.br/governodigital/++theme++padrao_govbr/img/error403.png" 
+          alt="Acesso Proibido"
+          style="width: 656px; height: auto; margin-right: 394px;"
+      >
+
+      <!-- TEXTOS -->
+      <div style="max-width: 500px;">
+
+          <!-- TÍTULO -->
+          <h2 style="color: #000000; font-weight: bold; font-size: 32px; margin-bottom: 15px;">
+              Conteúdo restrito
+          </h2>
+
+          <!-- TEXTO PRINCIPAL -->
+          <p style="color: #333; font-size: 20px; line-height: 1.6; text-align: justify;">
+              
+          </p>
+
+          <!-- TEXTO DE INSTRUÇÃO -->
+          <p style="color: #333; font-size: 20px; line-height: 1.6; text-align: justify; margin-top: 15px;">
+            Parece que o seu perfil de usuário não tem autorização para acessar esta área. Por favor, entre em contato com a <strong>COPRA</strong>, administradora do sistema</strong>, para solicitar a permissão.</strong>
+          </p>
+
+          <!-- USUÁRIO IDENTIFICADO -->
+          <p style="color: #333; font-size: 20px; margin-top: 25px;">
+              Seu usuário <strong>{{ session.user.username if session.user else 'N/A' }}</strong>  
+              não possui permissões para acessar o sistema.
+          </p>
+
+      </div>
+  </div>
+</div>
+
+
+{% endblock %}

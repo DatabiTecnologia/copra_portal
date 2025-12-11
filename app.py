@@ -2,7 +2,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, Blueprint,send_file
 from werkzeug.utils import secure_filename
 import mysql.connector
-from werkzeug.security import check_password_hash
+import bcrypt
 import config
 import pyodbc
 import pandas as pd
@@ -49,18 +49,19 @@ def load_page_permissions():
 
     permissions = {}
     for row in rows:
+        # allowed_titles agora armazena usernames (mantém nome da coluna por compatibilidade)
         permissions[row['page']] = row['allowed_titles'].split(',') if row['allowed_titles'] else []
     return permissions
 
-def save_page_permissions(page, titles):
+def save_page_permissions(page, usernames):
     conn = get_mysql_connection()
     cursor = conn.cursor()
-    titles_str = ','.join(titles)
+    usernames_str = ','.join(usernames)
     cursor.execute("""
         INSERT INTO page_permissions (page, allowed_titles)
         VALUES (%s, %s)
         ON DUPLICATE KEY UPDATE allowed_titles = VALUES(allowed_titles)
-    """, (page, titles_str))
+    """, (page, usernames_str))
     conn.commit()
     cursor.close()
     conn.close()
@@ -71,18 +72,62 @@ def check_access(page):
     if session['user']['is_admin'] == 1:
         return True
     permissions = load_page_permissions()
-    allowed_titles = permissions.get(page, [])
-    return session['user']['title'].lower() in [t.lower() for t in allowed_titles]
+    allowed_usernames = permissions.get(page, [])
+    return session['user']['username'].lower() in [u.lower() for u in allowed_usernames]
 
-def get_all_titles():
+def require_permission(page):
+    """
+    Decorator helper: verifica se o usuário tem permissão para acessar a página.
+    Se não tiver, redireciona para sem_permissao.
+    """
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Admin tem acesso total
+    if session['user']['is_admin'] == 1:
+        return None
+    
+    # Verifica se tem permissão específica para a página
+    if not check_access(page):
+        return redirect(url_for('sem_permissao'))
+    
+    return None
+
+def get_all_usernames():
     conn = get_mysql_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT title FROM user")
+    cursor.execute("SELECT DISTINCT username FROM user WHERE username IS NOT NULL AND username <> ''")
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    # Retorna lista de títulos (apenas o valor, não tupla)
+    # Retorna lista de usernames (apenas o valor, não tupla)
     return [row[0] for row in rows if row[0]]
+
+def user_has_any_permission(username):
+    """
+    Verifica se o usuário tem pelo menos uma permissão em alguma página.
+    Retorna True se o usuário for admin ou tiver pelo menos uma permissão.
+    """
+    conn = get_mysql_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT is_admin FROM `user` WHERE username=%s", (username,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    # Se for admin, tem acesso total
+    if user and user.get('is_admin') == 1:
+        return True
+    
+    # Verifica se tem pelo menos uma permissão
+    permissions = load_page_permissions()
+    username_lower = username.lower()
+    
+    for page, allowed_usernames in permissions.items():
+        if username_lower in [u.lower() for u in allowed_usernames]:
+            return True
+    
+    return False
 
 def normalizar_coluna(col):
     """
@@ -113,12 +158,31 @@ def login():
         if not user:
             return "Usuário não encontrado", 404
 
-        # Admins não precisam validar departamento, usuários comuns precisam de 'COPRA'
-        if user['is_admin'] == 1 or ('COPRA' in user['department'] and check_password_hash(user['password'], password)):
-            session['user'] = user
-            return redirect(url_for('home'))
-        else:
-            return "Acesso negado", 403
+        # Verifica se o hash da senha existe e é válido
+        if not user.get('password') or user['password'].strip() == '':
+            return "Erro: Senha não configurada para este usuário", 500
+
+        # Valida senha usando bcrypt (formato usado no banco)
+        try:
+            password_hash = user['password']
+            # Se o hash está em string, converte para bytes
+            if isinstance(password_hash, str):
+                password_hash = password_hash.encode('utf-8')
+            
+            # Verifica a senha usando bcrypt
+            if bcrypt.checkpw(password.encode('utf-8'), password_hash):
+                # Verifica se o usuário tem permissões (admin ou pelo menos uma permissão)
+                if not user_has_any_permission(username):
+                    # Se não tiver permissões, redireciona para página de sem permissão
+                    session['user'] = user  # Salva na sessão para mostrar o username na página
+                    return redirect(url_for('sem_permissao'))
+                
+                session['user'] = user
+                return redirect(url_for('home'))
+            else:
+                return "Senha incorreta", 403
+        except (ValueError, Exception) as e:
+            return f"Erro ao validar senha: {str(e)}", 500
 
     return render_template('login.html')
 
@@ -127,6 +191,10 @@ def home():
     # exige login
     if 'user' not in session:
         return redirect(url_for('login'))
+    
+    # Verifica se o usuário tem permissões (admin ou pelo menos uma permissão)
+    if not user_has_any_permission(session['user']['username']):
+        return redirect(url_for('sem_permissao'))
 
     # valores padrão (caso algo falhe, não quebra o template)
     total_registros = 0
@@ -259,6 +327,11 @@ def home():
 def dashboard_divisao():
     if 'user' not in session:
         return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('dashboard_divisao')
+    if permission_check:
+        return permission_check
 
     conn = None
     divisoes = []
@@ -316,6 +389,15 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
+@app.route('/sem_permissao')
+def sem_permissao():
+    """
+    Página exibida quando o usuário não tem permissões para acessar o sistema.
+    """
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    return render_template('sem_permissao.html')
+
 # Mapear abas -> tabelas
 TABELAS_VALIDAS = {
     "CODES_DIJUD": "codes_dijud",
@@ -328,6 +410,14 @@ TABELAS_VALIDAS = {
 
 @app.route('/inserir_dados', methods=['GET', 'POST'])
 def inserir_dados():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('inserir_dados')
+    if permission_check:
+        return permission_check
+    
     if request.method == 'POST':
         # 🔹 Se veio upload de planilha
         if 'upload_planilha' in request.form:
@@ -461,6 +551,13 @@ def inserir_dados():
 # Rota para download da planilha modelo
 @app.route('/download_modelo')
 def download_modelo():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('inserir_dados')  # Usa mesma permissão de inserir_dados
+    if permission_check:
+        return permission_check
     df_modelo = pd.DataFrame(columns=[
         'Fundo/Coleção',
         'Título / Conteúdo',
@@ -486,6 +583,14 @@ def download_modelo():
 
 @app.route('/pesquisar_divisao', methods=['GET', 'POST'])
 def pesquisar_divisao():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('pesquisar_divisao')
+    if permission_check:
+        return permission_check
+    
     resultados = []
     colunas = []
     total_nao_localizado = 0
@@ -583,6 +688,14 @@ def pesquisar_divisao():
 
 @app.route('/exportar_divisao')
 def exportar_divisao():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('pesquisar_divisao')  # Usa mesma permissão de pesquisar_divisao
+    if permission_check:
+        return permission_check
+    
     divisao = request.args.get('divisao')
     coluna = request.args.get('coluna')
     termo = request.args.get('termo')
@@ -633,6 +746,14 @@ def exportar_divisao():
 
 @app.route('/editar_registro/<int:id>', methods=['GET', 'POST'])
 def editar_registro(id):
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('editar_registro')
+    if permission_check:
+        return permission_check
+    
     conn = config.get_pg_connection()
     cur = conn.cursor()
 
@@ -714,8 +835,14 @@ def editar_registro(id):
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
-    if not check_access('upload'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('upload')
+    if permission_check:
+        return permission_check
+    
     if request.method == 'POST':
         file = request.files['file']
         if not file:
@@ -790,8 +917,13 @@ def upload():
 
 @app.route('/editar_redirect', methods=['GET'])
 def editar_redirect():
-    if not check_access('upload'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('upload')
+    if permission_check:
+        return permission_check
 
     tabela = request.args.get('tabela')
     if not tabela:
@@ -801,8 +933,13 @@ def editar_redirect():
 
 @app.route('/editar/<tabela>', methods=['GET', 'POST'])
 def editar(tabela):
-    if not check_access('upload'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('upload')
+    if permission_check:
+        return permission_check
 
     conn = get_pg_connection()
     cur = conn.cursor()
@@ -874,8 +1011,13 @@ def editar(tabela):
 
 @app.route('/insights')
 def insights():
-    if not check_access('insights'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('insights')
+    if permission_check:
+        return permission_check
     return render_template('insights.html')
 
 # -------------------
@@ -884,25 +1026,55 @@ def insights():
 
 @app.route('/permissions', methods=['GET', 'POST'])
 def permissions():
-    if not check_access('permissions'):
-        return jsonify(success=False, message="Acesso negado"), 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Apenas admin pode acessar permissões
+    if session['user']['is_admin'] != 1:
+        return redirect(url_for('sem_permissao'))
 
     if request.method == 'POST':
         # Recebe os dados do formulário
         data = request.form.to_dict(flat=False)  # flat=False para pegar listas
-        # Exemplo: {'home': ['Título 1', 'Título 2'], 'search': ['Título 3']}
+        # Exemplo: {'home': ['username1', 'username2'], 'search': ['username3']}
         try:
-            for page, titles in data.items():
-                save_page_permissions(page, titles)  # Função que salva no banco
+            for page, usernames in data.items():
+                save_page_permissions(page, usernames)  # Função que salva no banco
             return jsonify(success=True, message="Permissões salvas com sucesso!")
         except Exception as e:
             return jsonify(success=False, message=f"Erro ao salvar permissões: {e}")
     else:
         # GET: renderiza a página normalmente
-        pages = ['home', 'search', 'inserir_dados', 'dashboard_divisao', 'editar_registro', 'permissions']
-        all_titles = get_all_titles()  # Função que retorna todos os títulos possíveis
+        # Lista completa de todas as páginas do sistema que podem ter permissões
+        pages = [
+            'home',
+            'search',
+            'inserir_dados',
+            'dashboard_divisao',
+            'pesquisar_divisao',
+            'editar_registro',
+            'upload',
+            'editar',
+            'insights',
+            'permissions'
+        ]
+        # Dicionário com nomes amigáveis para exibição nas abas
+        page_labels = {
+            'home': 'Home',
+            'search': 'Pesquisa Docjud',
+            'inserir_dados': 'Inserir Dados',
+            'dashboard_divisao': 'Dashboard Divisão',
+            'pesquisar_divisao': 'Pesquisar Divisão',
+            'editar_registro': 'Editar Registro',
+            #'upload': 'Upload',
+            'editar': 'Editar',
+            #'insights': 'Insights',
+            'permissions': 'Permissões'
+        }
+        
+        all_usernames = get_all_usernames()  # Função que retorna todos os usernames possíveis
         page_permissions = load_page_permissions()  # Função que carrega permissões atuais
-        return render_template('permissions.html', pages=pages, all_titles=all_titles, page_permissions=page_permissions)
+        return render_template('permissions.html', pages=pages, page_labels=page_labels, all_usernames=all_usernames, page_permissions=page_permissions)
 
 # -------------------
 # Menu dinâmico
@@ -914,7 +1086,7 @@ def inject_user_menu():
         page_labels = {
             'home': 'Home',
             #'upload': 'Upload',
-            'search': 'Pesquisa',        
+            'search': 'Pesquisa Docjud',        
             #'insights': 'Dashboard',     
             'permissions': 'Permissões',
             'inserir_dados': 'Inserir Dados'
@@ -940,8 +1112,13 @@ def get_sqlserver_connection():
 
 @app.route('/search')
 def search():
-    if not check_access('search'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('search')
+    if permission_check:
+        return permission_check
 
     page = int(request.args.get('page', 1))
     per_page = 20
@@ -1015,8 +1192,13 @@ def search():
 
 @app.route('/search/export')
 def export_search():
-    if not check_access('search'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('search')
+    if permission_check:
+        return permission_check
 
     # Pega os filtros
     cod_ficha = request.args.get('cod_ficha', '')
@@ -1087,8 +1269,13 @@ def export_search():
 
 @app.route('/nao_localizado')
 def nao_localizado():
-    if not check_access('search'):
-        return "Acesso negado", 403
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    
+    # Verifica permissões
+    permission_check = require_permission('search')
+    if permission_check:
+        return permission_check
 
     conn = get_sqlserver_connection()
     cursor = conn.cursor()
@@ -1115,4 +1302,4 @@ def nao_localizado():
 
 # -------------------
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5001)
