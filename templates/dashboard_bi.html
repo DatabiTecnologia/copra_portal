@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard BI{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+
+  <!-- 🔹 Cabeçalho com botão voltar e logo -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
+      ⬅️ Voltar
+    </a>
+    <img src="{{ url_for('static', filename='logo_empresa.png') }}" 
+         alt="Logo" 
+         style="height: 100px;">
+  </div>
+
+  <h2 class="text-center mb-4">Dashboard Power BI</h2>
+
+  <!-- 🔹 Card com iframe do Power BI -->
+  <div class="card shadow-sm p-3">
+    <div class="ratio ratio-16x9">
+      <iframe 
+        title="Dash_copra_sistema"
+        src="https://app.powerbi.com/view?r=eyJrIjoiMmFhNWUyZTAtYjBmZi00MTI4LTg2YjctYWVkZjI3MzYzYjgxIiwidCI6Ijc4MjU4MjdjLTkxY2QtNDY4YS04ZmEwLTg5MDdjNTE3MWU2OSJ9"
+        frameborder="0"
+        allowfullscreen="true">
+      </iframe>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

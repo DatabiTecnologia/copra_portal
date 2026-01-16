@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="mb-3">Auditoria de Permissões</h2>
+
+<table class="table table-striped table-bordered align-middle">
+    <thead class="table-light">
+        <tr>
+            <th>Recurso</th>
+            <th>Usuário</th>
+            <th>Ação</th>
+            <th>Alterado por</th>
+            <th>Data/Hora</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for page, username, action, changed_by, changed_at in logs %}
+        <tr>
+            <td>
+                {% if page.startswith('DIVISAO:') %}
+                    <span class="badge bg-info text-dark">
+                        {{ page.replace('DIVISAO:', 'Divisão: ') }}
+                    </span>
+                {% else %}
+                    <span class="badge bg-primary">
+                        Página: {{ page }}
+                    </span>
+                {% endif %}
+            </td>
+
+            <td>{{ username }}</td>
+
+            <td>
+                {% if action == 'CONCEDIDO' %}
+                    <span class="badge bg-success">CONCEDIDO</span>
+                {% elif action == 'REMOVIDO' %}
+                    <span class="badge bg-danger">REMOVIDO</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ action }}</span>
+                {% endif %}
+            </td>
+
+            <td>{{ changed_by }}</td>
+
+            <td>{{ changed_at.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not logs %}
+<div class="alert alert-warning">
+    Nenhum registro de auditoria encontrado.
+</div>
+{% endif %}
+
+{% endblock %}

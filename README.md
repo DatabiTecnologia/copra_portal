@@ -12,7 +12,8 @@
 
 ## 🔹 Visão Geral
 
-Este sistema é uma aplicação **Flask** para gerenciamento de autenticação, permissões de acesso granular por usuário, upload de dados via Excel para PostgreSQL, pesquisa em SQL Server, edição de registros e exportação de relatórios.
+Este sistema é uma aplicação **Flask** para gerenciamento de autenticação, permissões de acesso por usuário, upload de dados via Excel para PostgreSQL, pesquisa em SQL Server, edição de registros e exportação de relatórios.
+Criado por Gustavo Henrique - COTIN
 
 Ele integra **3 bancos de dados** distintos:
 - **MySQL** → Usuários e permissões de acesso por página.

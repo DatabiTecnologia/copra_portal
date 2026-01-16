@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Auditoria{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow-sm border-0 rounded-3">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+      <h4 class="mb-0">🧾 Auditoria do Sistema</h4>
+      <span class="badge bg-light text-dark">Total: {{ total }}</span>
+    </div>
+
+    <div class="card-body">
+
+      <!-- Filtros -->
+      <form method="GET" class="row g-2 align-items-end mb-3">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Busca livre</label>
+          <input type="text" name="q" class="form-control" value="{{ q }}" placeholder="usuário, ação, detalhes...">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Entidade</label>
+          <select name="entity_type" class="form-select">
+            <option value="">Todas</option>
+            {% for et in entity_types %}
+              <option value="{{ et }}" {% if et == entity_type %}selected{% endif %}>{{ et }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Ação</label>
+          <select name="action" class="form-select">
+            <option value="">Todas</option>
+            {% for ac in actions %}
+              <option value="{{ ac }}" {% if ac == action %}selected{% endif %}>{{ ac }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Usuário</label>
+          <input type="text" name="created_by" class="form-control" value="{{ created_by }}" placeholder="ex.: joao">
+        </div>
+
+        <div class="col-md-1">
+          <label class="form-label fw-semibold">De</label>
+          <input type="date" name="date_from" class="form-control" value="{{ date_from }}">
+        </div>
+
+        <div class="col-md-1">
+          <label class="form-label fw-semibold">Até</label>
+          <input type="date" name="date_to" class="form-control" value="{{ date_to }}">
+        </div>
+
+        <div class="col-md-1 d-flex gap-2">
+          <button class="btn btn-primary w-100" type="submit">Filtrar</button>
+        </div>
+
+        <div class="col-md-1 d-flex gap-2">
+          <a class="btn btn-outline-secondary w-100" href="{{ url_for('audit') }}">Limpar</a>
+        </div>
+      </form>
+
+      <!-- Tabela -->
+      <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Data/Hora</th>
+              <th>Usuário</th>
+              <th>Entidade</th>
+              <th>ID</th>
+              <th>Ação</th>
+              <th>Detalhes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if audits and audits|length > 0 %}
+              {% for a in audits %}
+                <tr>
+                  <td>{{ a.created_at }}</td>
+                  <td><span class="badge bg-secondary">{{ a.created_by }}</span></td>
+                  <td>{{ a.entity_type }}</td>
+                  <td>{{ a.entity_id if a.entity_id is not none else '' }}</td>
+                  <td><span class="badge bg-info text-dark">{{ a.action }}</span></td>
+                  <td style="max-width: 520px;">
+                    <pre class="mb-0" style="white-space: pre-wrap;">{{ a.details }}</pre>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="6">
+                  <div class="alert alert-secondary mb-0">Nenhum registro encontrado com os filtros atuais.</div>
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Paginação -->
+      <nav class="d-flex justify-content-between align-items-center mt-3">
+        <div class="text-muted">
+          Página {{ page }} de {{ total_pages }} • 25 por página
+        </div>
+
+        <ul class="pagination mb-0">
+          {% set prev_page = page - 1 %}
+          {% set next_page = page + 1 %}
+
+          <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+            <a class="page-link"
+               href="{{ url_for('audit', page=prev_page, q=q, entity_type=entity_type, action=action, created_by=created_by, date_from=date_from, date_to=date_to) }}">
+              «
+            </a>
+          </li>
+
+          <li class="page-item disabled">
+            <span class="page-link">{{ page }}</span>
+          </li>
+
+          <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+            <a class="page-link"
+               href="{{ url_for('audit', page=next_page, q=q, entity_type=entity_type, action=action, created_by=created_by, date_from=date_from, date_to=date_to) }}">
+              »
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

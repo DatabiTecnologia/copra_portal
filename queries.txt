@@ -48,5 +48,14 @@ CREATE TABLE codac_didoc (
     observacao TEXT
 );
 
+Dentro do an_bi no postgresql ( ele faz auditoria de quem deu permissão para o usuario)
+CREATE TABLE permissions_audit (
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    page VARCHAR(100),
+    username VARCHAR(100),
+    action VARCHAR(20),
+    changed_by VARCHAR(100),
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 

@@ -8,10 +8,10 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div class="d-flex gap-2">
         <a href="{{ url_for('dashboard_divisao') }}" class="btn btn-outline-primary">
-            Ver por Divisão
+            Pesquisar por Divisão
         </a>
         <a href="{{ url_for('inserir_dados') }}" class="btn btn-outline-primary">
-            Inserir dados
+            Inserir registro
         </a>
         <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-outline-primary">
             Editar registro
@@ -43,7 +43,7 @@
     <div class="col-md-3">
       <div class="card text-center border-0 shadow-sm">
         <div class="card-body">
-          <h5 class="card-title text-secondary">% Não Localizado</h5>
+          <h5 class="card-title text-secondary"> Não Localizado</h5>
           <h2 class="text-warning">{{ percentual_nao_localizado }}%</h2>
         </div>
       </div>
@@ -71,7 +71,7 @@
     <div class="col-md-6 mb-4">
       <div class="card shadow-sm h-100">
         <div class="card-body">
-          <h5 class="card-title">📅 Evolução dos Não Localizados (por Data do Registro)</h5>
+          <h5 class="card-title">📅 Não Localizados (por Data do Registro)</h5>
           <canvas id="chartEvolucao"></canvas>
         </div>
       </div>
@@ -97,7 +97,7 @@
     data: {
       labels: {{ divisoes|tojson }},
       datasets: [{
-        label: '% Não Localizado',
+        label: 'Não Localizado',
         data: {{ percentual_divisao|tojson }},
         backgroundColor: '#007bff'
       }]

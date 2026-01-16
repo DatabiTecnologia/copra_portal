@@ -1,2 +1,22 @@
+# Ambiente virtual
 venv/
+.env
+*.env
+
+# Configurações sensíveis
 config.py
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db

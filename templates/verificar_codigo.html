@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Verificar Código{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow-sm border-0 rounded-3">
+    <div class="card-header bg-primary text-white">
+      <h4 class="mb-0">🔎 Verificar Código de Referência</h4>
+    </div>
+
+    <div class="card-body">
+      <form method="POST" class="row g-3 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold">Código de Referência</label>
+          <input
+            type="text"
+            name="codigo_referencia"
+            class="form-control"
+            placeholder="Ex: BR_RJANRIO_R0_TESTE001"
+            value="{{ codigo or '' }}"
+            required
+          >
+          <div class="form-text">
+            A busca não diferencia letras maiúsculas e minúsculas.
+          </div>
+        </div>
+
+        <div class="col-md-4">
+          <button type="submit" class="btn btn-success w-100">
+            🔍 Buscar
+          </button>
+        </div>
+      </form>
+
+      <hr class="my-4">
+
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+          ⬅️ Voltar para Home
+        </a>
+
+        <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-outline-primary">
+          📁 Pesquisar por Divisão
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

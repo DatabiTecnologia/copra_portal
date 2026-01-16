@@ -1,63 +1,225 @@
 {% extends "base.html" %}
 {% block content %}
-  <div class="bg-white rounded shadow-sm mb-4 p-4">
-    <h2 class="fw-bold text-primary mb-4" style="letter-spacing:1px;">Painel de Permissões</h2>
-    <div class="card p-4 mb-4">
-      <h4 class="mb-4">Gerenciar Permissões de Visualização</h4>
-      <!-- Abas para páginas -->
-      <ul class="nav nav-tabs" id="pageTabs" role="tablist">
-        {% for page in pages %}
-        <li class="nav-item" role="presentation">
-          <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ page }}" data-bs-toggle="tab" data-bs-target="#content-{{ page }}" type="button" role="tab">{{ page_labels.get(page, page.capitalize()) }}</button>
-        </li>
-        {% endfor %}
-      </ul>
-      <div class="tab-content mt-3">
-        {% for page in pages %}
-        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="content-{{ page }}" role="tabpanel">
-          {% for username in all_usernames %}
-          {% set checked = username in page_permissions.get(page, []) %}
-          <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="{{ page }}_{{ loop.index }}" data-page="{{ page }}" data-username="{{ username }}" {% if checked %}checked{% endif %}>
-            <label class="form-check-label fw-semibold" for="{{ page }}_{{ loop.index }}">{{ username }}</label>
-          </div>
-          {% endfor %}
-        </div>
-        {% endfor %}
-      </div>
-      <div class="mt-4 text-end">
-        <button id="save-btn" class="btn btn-success">Salvar Permissões</button>
-      </div>
-      <div id="feedback" class="feedback"></div>
+
+<!-- LOADING -->
+<div id="loadingOverlay"
+     style="
+       position: fixed;
+       inset: 0;
+       background: rgba(255,255,255,.85);
+       display: flex;
+       align-items: center;
+       justify-content: center;
+       z-index: 2000;
+     ">
+  <div class="text-center">
+    <div class="spinner-border text-primary mb-3" role="status"></div>
+    <div class="fw-semibold">Carregando permissões…</div>
+  </div>
+</div>
+
+<div class="container-fluid bg-white rounded shadow-sm p-4">
+
+  <h2 class="fw-bold text-primary mb-3">Painel de Permissões</h2>
+
+  <!-- BUSCA -->
+  <div class="row mb-3">
+    <div class="col-md-4">
+      <input type="text"
+             id="userSearch"
+             class="form-control"
+             placeholder="🔍 Buscar usuário..."
+             oninput="applySearch()">
     </div>
   </div>
-  <script>
-    document.getElementById('save-btn').addEventListener('click', function() {
-      const data = {};
-      document.querySelectorAll('.form-check-input').forEach(el => {
-        const page = el.dataset.page;
-        const username = el.dataset.username;
-        if (!data[page]) data[page] = [];
-        if (el.checked) data[page].push(username);
-      });
-      fetch('/permissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams(data).toString()
-      })
-      .then(response => response.json())
-      .then(result => {
-        const feedback = document.getElementById('feedback');
-        if(result.success){
-          feedback.innerHTML = '<div class="alert alert-success">' + result.message + '</div>';
-        } else {
-          feedback.innerHTML = '<div class="alert alert-danger">' + result.message + '</div>';
-        }
-      })
-      .catch(err => {
-        document.getElementById('feedback').innerHTML = '<div class="alert alert-danger">Erro ao salvar permissões.</div>';
-        console.error(err);
-      });
+
+  <!-- TABELA -->
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Usuário</th>
+
+          <!-- PÁGINAS -->
+          {% for page in pages %}
+            <th class="text-center">
+              {{ page_labels.get(page, page) }}
+            </th>
+          {% endfor %}
+
+          <!-- DIVISÕES -->
+          {% for div in divisoes %}
+            <th class="text-center">{{ div }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+
+      <tbody id="permissionsTable"></tbody>
+    </table>
+  </div>
+
+  <!-- PAGINAÇÃO -->
+  <div class="d-flex justify-content-between align-items-center mt-3">
+    <button class="btn btn-outline-secondary btn-sm"
+            onclick="changePage(-1)">
+      ◀ Anterior
+    </button>
+
+    <span id="pageInfo" class="fw-semibold"></span>
+
+    <button class="btn btn-outline-secondary btn-sm"
+            onclick="changePage(1)">
+      Próxima ▶
+    </button>
+  </div>
+
+  <div id="feedback" class="mt-3"></div>
+</div>
+
+<script>
+/* =========================
+   DADOS
+========================= */
+const allUsers = {{ all_usernames|tojson }};
+const pages = {{ pages|tojson }};
+const pagePermissions = {{ page_permissions|tojson }};
+const divisoes = {{ divisoes|tojson }};
+const divisaoPermissions = {{ divisao_permissions|tojson }};
+
+const PAGE_SIZE = 25;
+let currentPage = 1;
+
+/* =========================
+   BUSCA
+========================= */
+function applySearch() {
+  currentPage = 1;
+  renderTable();
+}
+
+/* =========================
+   PAGINAÇÃO
+========================= */
+function getPagedUsers(filter = "") {
+  const filtered = allUsers.filter(u =>
+    u.toLowerCase().includes(filter)
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+
+  if (currentPage > totalPages) currentPage = totalPages;
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+
+  return {
+    users: filtered.slice(start, end),
+    totalPages
+  };
+}
+
+function changePage(delta) {
+  currentPage += delta;
+  if (currentPage < 1) currentPage = 1;
+  renderTable();
+}
+
+/* =========================
+   RENDER
+========================= */
+function renderTable() {
+  const filter = document.getElementById('userSearch').value.toLowerCase();
+  const tbody = document.getElementById("permissionsTable");
+  tbody.innerHTML = "";
+
+  const { users, totalPages } = getPagedUsers(filter);
+
+  users.forEach(username => {
+
+    let row = `<tr><td class="fw-semibold">${username}</td>`;
+
+    /* PÁGINAS */
+    pages.forEach(page => {
+      const checked = pagePermissions[page]?.includes(username) ? "checked" : "";
+      row += `
+        <td class="text-center">
+          <input type="checkbox"
+                 ${checked}
+                 onchange="togglePage('${username}','${page}', this.checked)">
+        </td>
+      `;
     });
-  </script>
+
+    /* DIVISÕES */
+    divisoes.forEach(div => {
+      const key = `${username}::${div}`;
+      const checked = divisaoPermissions.includes(key) ? "checked" : "";
+      row += `
+        <td class="text-center">
+          <input type="checkbox"
+                 ${checked}
+                 onchange="toggleDivisao('${username}','${div}', this.checked)">
+        </td>
+      `;
+    });
+
+    row += "</tr>";
+    tbody.innerHTML += row;
+  });
+
+  document.getElementById('pageInfo').innerText =
+    `Página ${currentPage} de ${totalPages}`;
+
+  const overlay = document.getElementById('loadingOverlay');
+  if (overlay) overlay.remove();
+}
+
+/* =========================
+   AÇÕES
+========================= */
+function togglePage(username, page, checked) {
+  fetch('/permissions/page/action', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      username,
+      page,
+      action: checked ? 'GRANT' : 'REMOVE'
+    })
+  })
+  .then(r => r.json())
+  .then(showFeedback);
+}
+
+function toggleDivisao(username, divisao, checked) {
+  fetch('/permissions/divisao/action', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      username,
+      divisao,
+      action: checked ? 'GRANT' : 'REMOVE'
+    })
+  })
+  .then(r => r.json())
+  .then(showFeedback);
+}
+
+/* =========================
+   FEEDBACK
+========================= */
+function showFeedback(res){
+  document.getElementById('feedback').innerHTML = `
+    <div class="alert alert-${res.success ? 'success':'danger'}">
+      ${res.message}
+    </div>
+  `;
+}
+
+/* =========================
+   INIT
+========================= */
+renderTable();
+</script>
+
 {% endblock %}

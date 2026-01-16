@@ -2,7 +2,7 @@
 {% block content %}
   <div class="bg-white rounded shadow-sm mb-4 p-4">
     <h2 class="fw-bold text-primary mb-4" style="letter-spacing:1px;">
-      Inserir Dados na Tabela Padrão
+      Inserir registro
     </h2>
 
     <!-- 🔹 Seção 1 - Inserção manual -->
@@ -26,6 +26,7 @@
           <label class="form-label fw-semibold">Código de Referência</label>
           <input type="text" name="codigo_referencia" class="form-control" placeholder="Ex: 12345">
         </div>
+
         <div class="col-md-4">
           <label class="form-label fw-semibold">Notação</label>
           <input type="text" name="notacao" class="form-control" placeholder="Ex: Livro 2-A">
@@ -37,13 +38,23 @@
       </div>
 
       <div class="row">
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label class="form-label fw-semibold">Data do Registro</label>
           <input type="date" name="data_registro" class="form-control">
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label class="form-label fw-semibold">Data da Localização</label>
           <input type="date" name="data_localizacao" class="form-control">
+        </div>
+
+        <!-- ✅ NOVO: Localizado? -->
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Localizado?</label>
+          <select name="localizado" class="form-select">
+            <option value="false" selected>Não</option>
+            <option value="true">Sim</option>
+          </select>
+          <div class="form-text">Use “Sim” apenas quando o documento foi localizado.</div>
         </div>
       </div>
 
@@ -54,20 +65,34 @@
 
       <div>
         <label class="form-label fw-semibold">Divisão</label>
-        <input type="text" name="divisao" class="form-control" placeholder="Ex: DIJUD">
+        <select name="divisao" class="form-control" required>
+          <option value="" disabled selected>Selecione a divisão</option>
+          <option value="DIJUD">DIJUD</option>
+          <option value="DIPEX">DIPEX</option>
+          <option value="DIPOP">DIPOP</option>
+          <option value="DIDOC">DIDOC</option>
+          <option value="DIDAS">DIDAS</option>
+        </select>
       </div>
 
-      <button type="submit" class="btn btn-primary align-self-start mt-3">Inserir Dados</button>
+      <!-- ✅ Nome do submit para ficar explícito -->
+      <button type="submit" name="inserir_manual" class="btn btn-primary align-self-start mt-3">
+        Inserir registro
+      </button>
     </form>
 
     <!-- 🔹 Seção 2 - Upload de planilha -->
     <div class="border-top pt-4">
       <h5 class="fw-bold text-secondary mb-3">Inserção via Planilha</h5>
+      <p class="text-muted">
+        Faça o upload de uma planilha Excel (.xlsx) contendo os registros a serem inseridos.
+        Certifique-se de que a planilha siga o modelo padrão para evitar erros na inserção.
+      </p>
 
       <!-- Download da planilha padrão -->
       <div class="mb-3">
         <a href="{{ url_for('download_modelo') }}" class="btn btn-outline-success btn-sm">
-          📥 Baixar planilha padrão (.xlsx)
+          📥 Baixar planilha modelo (.xlsx)
         </a>
       </div>
 
@@ -75,7 +100,7 @@
       <form method="POST" enctype="multipart/form-data" class="d-flex flex-column gap-3">
         <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
         <button type="submit" name="upload_planilha" class="btn btn-primary align-self-start mt-2">
-          🚀 Enviar Planilha e Inserir Dados
+          🚀 Enviar Planilha e Inserir registro
         </button>
       </form>
     </div>

@@ -39,18 +39,48 @@
 </form>
 
 <!-- Card "Não Localizado" -->
-{% if count_nao_localizado is defined %}
+{% if total_registros is defined and total_registros > 0 %}
 <div class="row mb-4 mt-3">
+
+  <!-- Card Total de Registros -->
   <div class="col-md-4">
-    <div class="card border-warning shadow-sm">
+    <div class="card border-primary shadow-sm">
       <div class="card-body text-center">
-        <h5 class="card-title text-warning">Não Localizado</h5>
-        <p class="display-6 fw-bold">{{ count_nao_localizado }}</p>
-        <a href="{{ url_for('nao_localizado') }}" class="btn btn-outline-warning">Ver itens não localizados</a>
-        <a href="{{ url_for('export_search', query='nao_localizado') }}" class="btn btn-warning mt-2">Exportar Não Localizados</a>
+        <h5 class="card-title text-primary">Total de Registros</h5>
+        <p class="display-6 fw-bold">
+          {{ "{:,}".format(total_registros).replace(",", ".") }}
+        </p>
       </div>
     </div>
   </div>
+
+  <!-- Card Não Localizados -->
+  <div class="col-md-4">
+    <div class="card border-warning shadow-sm">
+      <div class="card-body text-center">
+        <h5 class="card-title text-warning">Não Localizados</h5>
+
+        <p class="display-6 fw-bold mb-1">
+          {{ count_nao_localizado }}
+        </p>
+
+        <small class="text-muted">
+          {{ percentual_nao_localizado }}% do total
+        </small>
+
+        <div class="d-grid gap-2 mt-3">
+          <a href="{{ url_for('nao_localizado') }}" class="btn btn-outline-warning">
+            Ver itens não localizados
+          </a>
+
+          <a href="{{ url_for('export_search', query='nao_localizado') }}" class="btn btn-warning">
+            Exportar Não Localizados
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endif %}
 

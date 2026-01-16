@@ -6,7 +6,12 @@
   <div class="card shadow-sm border-0 rounded-3">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
       <h4 class="mb-0">✏️ Editar Registro #{{ registro.id }}</h4>
-      <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-light btn-sm">⬅️ Voltar</a>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#modalTentativa">
+          🧾 Registrar tentativa
+        </button>
+        <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-light btn-sm">⬅️ Voltar</a>
+      </div>
     </div>
 
     <div class="card-body">
@@ -33,15 +38,26 @@
           <input type="text" name="localizacao_fisica" class="form-control" value="{{ registro.localizacao_fisica or '' }}">
         </div>
 
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label class="form-label fw-semibold">Data do Registro</label>
           <input type="date" name="data_registro" class="form-control"
                  value="{{ registro.data_registro if registro.data_registro else '' }}">
         </div>
-        <div class="col-md-6">
+
+        <div class="col-md-4">
           <label class="form-label fw-semibold">Data da Localização</label>
           <input type="date" name="data_localizacao" class="form-control"
                  value="{{ registro.data_localizacao if registro.data_localizacao else '' }}">
+        </div>
+
+        <!-- ✅ NOVO: Localizado? -->
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Localizado?</label>
+          <select name="localizado" class="form-select">
+            <option value="false" {% if not registro.localizado %}selected{% endif %}>Não</option>
+            <option value="true" {% if registro.localizado %}selected{% endif %}>Sim</option>
+          </select>
+          <div class="form-text">Marque “Sim” apenas quando o documento foi localizado.</div>
         </div>
 
         <div class="col-12">
@@ -49,9 +65,19 @@
           <textarea name="observacoes" class="form-control" rows="3">{{ registro.observacoes or '' }}</textarea>
         </div>
 
+        <!-- ✅ NOVO: Divisão como select -->
         <div class="col-12">
           <label class="form-label fw-semibold">Divisão</label>
-          <input type="text" name="divisao" class="form-control" value="{{ registro.divisao or '' }}">
+          <select name="divisao" class="form-select" required>
+            {% set div = (registro.divisao or '')|upper %}
+            <option value="" disabled {% if not div %}selected{% endif %}>Selecione a divisão</option>
+            <option value="DIJUD" {% if div == 'DIJUD' %}selected{% endif %}>DIJUD</option>
+            <option value="DIPEX" {% if div == 'DIPEX' %}selected{% endif %}>DIPEX</option>
+            <option value="DIPOP" {% if div == 'DIPOP' %}selected{% endif %}>DIPOP</option>
+            <option value="DIDOC" {% if div == 'DIDOC' %}selected{% endif %}>DIDOC</option>
+            <option value="DIDAS" {% if div == 'DIDAS' %}selected{% endif %}>DIDAS</option>
+          </select>
+          <div class="form-text">Isso evita erro de digitação e garante consistência no banco.</div>
         </div>
 
         <div class="col-12 d-flex justify-content-between mt-3">
@@ -59,7 +85,128 @@
           <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-secondary px-4">Cancelar</a>
         </div>
       </form>
+
+      <!-- ✅ Histórico de tentativas -->
+      <hr class="my-4">
+      <h5 class="fw-bold text-secondary mb-3">📌 Histórico de tentativas</h5>
+
+      {% if tentativas and tentativas|length > 0 %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Data/Hora</th>
+                <th>Status</th>
+                <th>Usuário</th>
+                <th>Observação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for t in tentativas %}
+              <tr>
+                <td>{{ t[3] }}</td>
+                <td>
+                  {% if t[0] == 'ENCONTRADO' %}
+                    <span class="badge bg-success">Encontrado</span>
+                  {% elif t[0] == 'NAO_ENCONTRADO' %}
+                    <span class="badge bg-danger">Não encontrado</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">Procurando</span>
+                  {% endif %}
+                </td>
+                <td>{{ t[2] }}</td>
+                <td>{{ t[1] or '' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="alert alert-secondary mb-0">
+          Nenhuma tentativa registrada ainda.
+        </div>
+      {% endif %}
+
     </div>
   </div>
 </div>
+
+<!-- ✅ MODAL Registrar tentativa -->
+<div class="modal fade" id="modalTentativa" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">🧾 Registrar tentativa</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Status</label>
+            <select id="tentativaStatus" class="form-select">
+              <option value="PROCURANDO" selected>Procurando</option>
+              <option value="NAO_ENCONTRADO">Não encontrado</option>
+              <option value="ENCONTRADO">Encontrado</option>
+            </select>
+          </div>
+
+          <div class="col-md-8">
+            <label class="form-label fw-semibold">Observação (opcional)</label>
+            <input id="tentativaObs" type="text" class="form-control"
+                   placeholder="Ex.: Procurei no armário X e caixa Y, sem sucesso.">
+          </div>
+
+          <div class="col-12">
+            <div id="tentativaFeedback"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarTentativa()">
+          Salvar tentativa
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function salvarTentativa() {
+  const status = document.getElementById('tentativaStatus').value;
+  const observacao = document.getElementById('tentativaObs').value;
+
+  const feedback = document.getElementById('tentativaFeedback');
+  feedback.innerHTML = "";
+
+  try {
+    const resp = await fetch("/registro/{{ registro.id }}/tentativa", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ status, observacao })
+    });
+
+    const data = await resp.json();
+
+    feedback.innerHTML = `
+      <div class="alert alert-${data.success ? 'success' : 'danger'} mb-0">
+        ${data.message}
+      </div>
+    `;
+
+    if (data.success) {
+      setTimeout(() => window.location.reload(), 500);
+    }
+  } catch (e) {
+    feedback.innerHTML = `
+      <div class="alert alert-danger mb-0">
+        Erro inesperado ao salvar tentativa.
+      </div>
+    `;
+  }
+}
+</script>
+
 {% endblock %}

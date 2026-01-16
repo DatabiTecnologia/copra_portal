@@ -3,9 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Cade Meu Doc - COPRA</title>
+    <title>Login - Cadê Meu Doc - COPRA</title>
+
+    <!-- Bootstrap -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
     <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
+
     <style>
         body {
             font-family: 'Roboto', Arial, sans-serif;
@@ -41,23 +46,6 @@
             border-radius: 12px;
             box-shadow: 0 4px 15px rgba(19,81,180,0.08);
         }
-        .login-box h3 {
-            text-align: center;
-            margin-bottom: 25px;
-            font-weight: bold;
-            color: #1351B4;
-            letter-spacing: 1px;
-        }
-        .btn-primary {
-            width: 100%;
-            font-weight: 600;
-            background-color: #1351B4;
-            border-color: #1351B4;
-        }
-        .btn-primary:hover {
-            background-color: #003366;
-            border-color: #003366;
-        }
         footer {
             background: #fafbfc;
             color: #1351B4;
@@ -74,15 +62,20 @@
         }
     </style>
 </head>
+
 <body>
+
     <!-- Cabeçalho gov.br -->
     <header class="govbr-header">
         <img src="https://www.gov.br/governodigital/pt-br/acessibilidade-e-usuario/atendimento-gov.br/imagens/gov-br_logo-svg.png" alt="gov.br">
-        <span class="govbr-header-title">Cade Meu DOC - COPRA</span>
+        <span class="govbr-header-title">Cadê meu DOC - COPRA</span>
     </header>
+
     <main>
         <div class="login-box">
-            <h3>Cade meu DOC - COPRA</h3>
+            <h3 style="text-align:center; color:#1351B4; font-weight:bold;">Cadê meu DOC - COPRA</h3>
+            <p style="text-align: center;">Versão: 1.0</p>
+
             <form method="POST">
                 <div class="mb-3">
                     <label for="username" class="form-label">Usuário</label>
@@ -92,10 +85,11 @@
                     <label for="password" class="form-label">Senha</label>
                     <input type="password" class="form-control" id="password" name="password" placeholder="Digite sua senha" required>
                 </div>
-                <button type="submit" class="btn btn-primary">Entrar</button>
+                <button type="submit" class="btn btn-primary w-100">Entrar</button>
             </form>
         </div>
     </main>
+
     <!-- Rodapé gov.br -->
     <footer>
         <img src="https://www.gov.br/governodigital/pt-br/acessibilidade-e-usuario/atendimento-gov.br/imagens/gov-br_logo-svg.png" alt="gov.br">
@@ -106,5 +100,53 @@
             </small>
         </div>
     </footer>
+
+
+    <!-- 🔵 MODAL DE ERRO ESTILO GOV.BR -->
+    <div class="modal fade" id="errorModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="border-radius: 12px;">
+    
+                <div class="modal-header" style="background-color:#1351B4; color:white; border-top-left-radius:12px; border-top-right-radius:12px;">
+                    <h5 class="modal-title" style="font-weight: 500; letter-spacing: 1px;">
+                        Aviso do Sistema
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+    
+                <div class="modal-body text-center" style="padding: 30px;">
+                    
+                    <!-- Ícone novo -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="#d9534f" class="bi bi-exclamation-triangle-fill" viewBox="0 0 16 16" style="margin-bottom:20px;">
+                      <path d="M8.982 1.566a1.13 1.13 0 0 0-1.965 0L.165 13.233c-.457.778.091 1.767.982 1.767h13.706c.89 0 1.438-.99.982-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1-2.002 0 1 1 0 0 1 2.002 0z"/>
+                    </svg>
+    
+                    <p style="font-size: 1.15rem; color:#333; font-weight: 500;">
+                        {{ error }}
+                    </p>
+                </div>
+    
+                <div class="modal-footer" style="border-bottom-left-radius:12px; border-bottom-right-radius:12px;">
+                    <button type="button" 
+                            class="btn w-100"
+                            style="background-color:#1351B4; color:white; font-weight:600;"
+                            data-bs-dismiss="modal">
+                        Entendi
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if error %}
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            var myModal = new bootstrap.Modal(document.getElementById('errorModal'));
+            myModal.show();
+        });
+    </script>
+    {% endif %}
+
+
 </body>
 </html>

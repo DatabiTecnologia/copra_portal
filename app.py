@@ -3,30 +3,31 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from werkzeug.utils import secure_filename
 import mysql.connector
 import bcrypt
-import config
+import config 
 import pyodbc
 import pandas as pd
 from flask import send_file
 import io
 import psycopg2
+from config import POSTGRES_CONFIG
 import unicodedata
 from io import BytesIO
 from datetime import datetime, date
 import os
+from flask import request, jsonify
+from flask_login import current_user, UserMixin
+from datetime import datetime
+from flask_login import LoginManager, login_required, login_user, logout_user, current_user
+from openpyxl import load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
+import json
+
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 
-# -------------------
-# Conexões
-# -------------------
-def get_mysql_connection():
-    return mysql.connector.connect(
-        host=config.MYSQL_CONFIG['host'],
-        user=config.MYSQL_CONFIG['user'],
-        password=config.MYSQL_CONFIG['password'],
-        database=config.MYSQL_CONFIG['database']
-    )
+
+
 def get_pg_connection():
     return psycopg2.connect(
         host=config.PG_CONFIG['host'],
@@ -35,99 +36,200 @@ def get_pg_connection():
         user=config.PG_CONFIG['user'],
         password=config.PG_CONFIG['password']
     )
+def get_postgres_connection():
+    """
+    Retorna uma conexão com o PostgreSQL (an_bi),
+    usando o config centralizado.
+    """
+    return psycopg2.connect(**POSTGRES_CONFIG)
+
+def grant_permission(page, username):
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO page_permissions (page, username)
+            VALUES (%s, %s)
+            ON CONFLICT (page, username) DO NOTHING
+            RETURNING 1
+        """, (page, username))
+        inserted = cur.fetchone() is not None
+        conn.commit()
+        return inserted
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+def revoke_permission(page, username):
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            DELETE FROM page_permissions
+            WHERE page = %s AND username = %s
+        """, (page, username))
+        removed = (cur.rowcount > 0)
+        conn.commit()
+        return removed
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+def log_permission_audit(page, username, action, changed_by):
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO permissions_audit
+        (page, username, action, changed_by)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (page, username, action, changed_by)
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 # -------------------
 # Permissões
 # -------------------
 def load_page_permissions():
-    conn = get_mysql_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM page_permissions")  # tabela de permissões
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT page, username
+        FROM page_permissions
+    """)
     rows = cursor.fetchall()
+
     cursor.close()
     conn.close()
 
     permissions = {}
-    for row in rows:
-        # allowed_titles agora armazena usernames (mantém nome da coluna por compatibilidade)
-        permissions[row['page']] = row['allowed_titles'].split(',') if row['allowed_titles'] else []
+    for page, username in rows:
+        permissions.setdefault(page, []).append(username)
+
     return permissions
 
-def save_page_permissions(page, usernames):
-    conn = get_mysql_connection()
+
+def save_page_permissions(page, usernames, changed_by=None):
+    conn = get_postgres_connection()
     cursor = conn.cursor()
-    usernames_str = ','.join(usernames)
-    cursor.execute("""
-        INSERT INTO page_permissions (page, allowed_titles)
-        VALUES (%s, %s)
-        ON DUPLICATE KEY UPDATE allowed_titles = VALUES(allowed_titles)
-    """, (page, usernames_str))
+
+    cursor.execute(
+        "SELECT username FROM page_permissions WHERE page = %s",
+        (page,)
+    )
+    existing = {row[0] for row in cursor.fetchall()}
+    new_users = set(usernames)
+
+    to_add = new_users - existing
+
+    for username in to_add:
+        cursor.execute(
+            """
+            INSERT INTO page_permissions (page, username)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (page, username)
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO permissions_audit
+            (page, username, action, changed_by)
+            VALUES (%s, %s, 'CONCEDIDO', %s)
+            """,
+            (page, username, changed_by)
+        )
+
     conn.commit()
     cursor.close()
     conn.close()
 
+
 def check_access(page):
     if 'user' not in session:
         return False
+
     if session['user']['is_admin'] == 1:
         return True
-    permissions = load_page_permissions()
-    allowed_usernames = permissions.get(page, [])
-    return session['user']['username'].lower() in [u.lower() for u in allowed_usernames]
 
-def require_permission(page):
-    """
-    Decorator helper: verifica se o usuário tem permissão para acessar a página.
-    Se não tiver, redireciona para sem_permissao.
-    """
+    permissions = load_page_permissions()
+    allowed = permissions.get(page, [])
+
+    return session['user']['username'].lower() in [u.lower() for u in allowed]
+
+
+
+def require_permission(page_code):
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    # Admin tem acesso total
+
     if session['user']['is_admin'] == 1:
         return None
-    
-    # Verifica se tem permissão específica para a página
-    if not check_access(page):
+
+    if not check_access(page_code):
         return redirect(url_for('sem_permissao'))
-    
+
     return None
 
+
+
 def get_all_usernames():
-    conn = get_mysql_connection()
+    conn = get_postgres_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT username FROM user WHERE username IS NOT NULL AND username <> ''")
+
+    cursor.execute("""
+        SELECT username
+        FROM users
+        WHERE username IS NOT NULL AND username <> ''
+        ORDER BY username
+    """)
     rows = cursor.fetchall()
+
     cursor.close()
     conn.close()
-    # Retorna lista de usernames (apenas o valor, não tupla)
-    return [row[0] for row in rows if row[0]]
+
+    return [row[0] for row in rows]
+
+
 
 def user_has_any_permission(username):
-    """
-    Verifica se o usuário tem pelo menos uma permissão em alguma página.
-    Retorna True se o usuário for admin ou tiver pelo menos uma permissão.
-    """
-    conn = get_mysql_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT is_admin FROM `user` WHERE username=%s", (username,))
-    user = cursor.fetchone()
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT is_admin FROM users WHERE username = %s",
+        (username,)
+    )
+    row = cursor.fetchone()
+
     cursor.close()
     conn.close()
-    
-    # Se for admin, tem acesso total
-    if user and user.get('is_admin') == 1:
+
+    if row and row[0] == 1:
         return True
-    
-    # Verifica se tem pelo menos uma permissão
+
     permissions = load_page_permissions()
     username_lower = username.lower()
-    
-    for page, allowed_usernames in permissions.items():
-        if username_lower in [u.lower() for u in allowed_usernames]:
+
+    for users in permissions.values():
+        if username_lower in [u.lower() for u in users]:
             return True
-    
+
     return False
+
 
 def normalizar_coluna(col):
     """
@@ -139,6 +241,196 @@ def normalizar_coluna(col):
     col_normalizada = col_normalizada.replace(" ", "_").replace("-", "_").replace("/", "_")
     col_normalizada = "".join([c if c.isalnum() or c == "_" else "" for c in col_normalizada])
     return col_normalizada
+
+def save_page_permissions(page, new_users, changed_by):
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT username FROM public.page_permissions WHERE page = %s",
+        (page,)
+    )
+    current_users = {row[0] for row in cursor.fetchall()}
+    new_users = set(new_users)
+
+    added_users = new_users - current_users
+    removed_users = current_users - new_users
+
+    for username in added_users:
+        cursor.execute(
+            "INSERT INTO public.page_permissions (page, username) VALUES (%s, %s)",
+            (page, username)
+        )
+        cursor.execute(
+            """
+            INSERT INTO public.permissions_audit (page, username, action, changed_by)
+            VALUES (%s, %s, 'CONCEDIDO', %s)
+            """,
+            (page, username, changed_by)
+        )
+
+    for username in removed_users:
+        cursor.execute(
+            "DELETE FROM public.page_permissions WHERE page = %s AND username = %s",
+            (page, username)
+        )
+        cursor.execute(
+            """
+            INSERT INTO public.permissions_audit (page, username, action, changed_by)
+            VALUES (%s, %s, 'REMOVIDO', %s)
+            """,
+            (page, username, changed_by)
+        )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+def get_all_divisoes():
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT divisa
+        FROM tabela_padrao
+        WHERE divisa IS NOT NULL
+        ORDER BY divisa
+    """)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return [r[0] for r in rows]
+
+def user_can_access_divisao(username, divisao):
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 1
+        FROM divisao_permissions
+        WHERE username = %s AND divisao = %s
+    """, (username, divisao))
+    allowed = cursor.fetchone() is not None
+    cursor.close()
+    conn.close()
+    return allowed
+
+
+def get_divisoes_permitidas(username):
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT DISTINCT dp.divisao
+        FROM divisao_permissions dp
+        WHERE dp.username = %s
+        ORDER BY dp.divisao;
+    """, (username,))
+
+    divisoes = [r[0] for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+    return divisoes
+
+
+
+
+
+
+def save_divisao_permissions(username, novas_divisoes, admin_user):
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+
+    # Divisões atuais
+    cur.execute(
+        "SELECT divisao FROM tabela_divisao WHERE username = %s;",
+        (username,)
+    )
+    atuais = {row[0] for row in cur.fetchall()}
+    novas = set(novas_divisoes)
+
+    # ➖ Removidas
+    for div in atuais - novas:
+        cur.execute(
+            "DELETE FROM tabela_divisao WHERE username=%s AND divisao=%s;",
+            (username, div)
+        )
+        cur.execute("""
+            INSERT INTO tabela_divisao_audit
+            (username, divisao, action, changed_by)
+            VALUES (%s, %s, 'REMOVIDO', %s);
+        """, (username, div, admin_user))
+
+    # ➕ Concedidas
+    for div in novas - atuais:
+        cur.execute("""
+            INSERT INTO tabela_divisao
+            (username, divisao, granted_by)
+            VALUES (%s, %s, %s);
+        """, (username, div, admin_user))
+
+        cur.execute("""
+            INSERT INTO tabela_divisao_audit
+            (username, divisao, action, changed_by)
+            VALUES (%s, %s, 'CONCEDIDO', %s);
+        """, (username, div, admin_user))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+from flask_login import UserMixin
+
+class User(UserMixin):
+    def __init__(self, id, username, is_admin):
+        self.id = id
+        self.username = username
+        self.is_admin = is_admin
+
+    def get_id(self):
+        return str(self.id)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, username, is_admin FROM users WHERE id = %s",
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if row:
+        return User(id=row[0], username=row[1], is_admin=row[2])
+    return None
+
+def audit_log(entity_type, entity_id, action, details, created_by):
+    import json
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO system_audit (entity_type, entity_id, action, details, created_by)
+            VALUES (%s, %s, %s, %s::jsonb, %s)
+        """, (
+            entity_type,
+            entity_id,
+            action,
+            json.dumps(details or {}),
+            created_by
+        ))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
 # -------------------
 # Rotas
 # -------------------
@@ -148,43 +440,54 @@ def login():
         username = request.form['username']
         password = request.form['password']
 
-        conn = get_mysql_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM `user` WHERE username=%s", (username,))
-        user = cursor.fetchone()
+        conn = get_postgres_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT username, password, is_admin
+            FROM users
+            WHERE username = %s
+            """,
+            (username,)
+        )
+        row = cursor.fetchone()
+
         cursor.close()
         conn.close()
 
-        if not user:
-            return "Usuário não encontrado", 404
+        if not row:
+            return render_template("login.html", error="Usuário não encontrado")
 
-        # Verifica se o hash da senha existe e é válido
-        if not user.get('password') or user['password'].strip() == '':
-            return "Erro: Senha não configurada para este usuário", 500
+        db_username, password_hash, is_admin = row
 
-        # Valida senha usando bcrypt (formato usado no banco)
+        if not password_hash:
+            return render_template("login.html", error="Senha não configurada")
+
         try:
-            password_hash = user['password']
-            # Se o hash está em string, converte para bytes
-            if isinstance(password_hash, str):
-                password_hash = password_hash.encode('utf-8')
-            
-            # Verifica a senha usando bcrypt
-            if bcrypt.checkpw(password.encode('utf-8'), password_hash):
-                # Verifica se o usuário tem permissões (admin ou pelo menos uma permissão)
-                if not user_has_any_permission(username):
-                    # Se não tiver permissões, redireciona para página de sem permissão
-                    session['user'] = user  # Salva na sessão para mostrar o username na página
-                    return redirect(url_for('sem_permissao'))
-                
-                session['user'] = user
-                return redirect(url_for('home'))
-            else:
-                return "Senha incorreta", 403
-        except (ValueError, Exception) as e:
-            return f"Erro ao validar senha: {str(e)}", 500
+            if isinstance(password_hash, memoryview):
+                password_hash = bytes(password_hash)
 
-    return render_template('login.html')
+            if isinstance(password_hash, memoryview):
+                password_hash = password_hash.tobytes()
+            elif isinstance(password_hash, str):
+                password_hash = password_hash.encode("utf-8")
+
+            if bcrypt.checkpw(password.encode("utf-8"), password_hash):
+                user = {
+                    "username": db_username,
+                    "is_admin": is_admin
+                }
+                session["user"] = user
+                return redirect(url_for("home"))
+            else:
+                return render_template("login.html", error="Senha incorreta")
+
+        except Exception as e:
+            return render_template("login.html", error=f"Erro ao validar senha: {str(e)}")
+
+    return render_template("login.html")
+
 
 @app.route('/home')
 def home():
@@ -327,42 +630,52 @@ def home():
 def dashboard_divisao():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    # Verifica permissões
+
+    # 🔐 Verifica permissões da página
     permission_check = require_permission('dashboard_divisao')
     if permission_check:
         return permission_check
 
     conn = None
-    divisoes = []
     divisao_selecionada = None
     dados_divisao = []
     mensagem = None
+
+    username = session['user']['username']
+    is_admin = session['user']['is_admin']
 
     try:
         conn = config.get_pg_connection()
         cur = conn.cursor()
 
-        # lista de divisões disponíveis
-        cur.execute("""
-            SELECT DISTINCT TRIM(divisao)
-            FROM tabela_padrao
-            WHERE divisao IS NOT NULL AND TRIM(divisao) <> ''
-            ORDER BY TRIM(divisao);
-        """)
-        divisoes = [row[0] for row in cur.fetchall()]
+        # 🔹 Divisões permitidas por usuário
+        divisoes = get_divisoes_permitidas(username, is_admin)
 
-        # se o usuário escolheu uma divisão
+        # 🔹 POST — usuário escolheu uma divisão
         if request.method == 'POST':
             divisao_selecionada = request.form.get('divisao')
+
+            # 🔒 Bloqueio de divisão não autorizada
+            if divisao_selecionada and divisao_selecionada not in divisoes:
+                mensagem = "❌ Você não tem permissão para acessar esta divisão."
+                return render_template(
+                    'dashboard_divisao.html',
+                    divisoes=divisoes,
+                    divisao_selecionada=None,
+                    dados_divisao=[],
+                    mensagem=mensagem
+                )
+
             if divisao_selecionada:
                 cur.execute("""
                     SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
                            localizacao_fisica, data_registro, data_localizacao, observacoes
                     FROM tabela_padrao
-                    WHERE TRIM(divisao) = %s;
+                    WHERE TRIM(divisao) = %s
+                    ORDER BY id DESC;
                 """, (divisao_selecionada,))
                 dados_divisao = cur.fetchall()
+
                 if not dados_divisao:
                     mensagem = f"Nenhum registro encontrado para a divisão '{divisao_selecionada}'."
 
@@ -375,6 +688,7 @@ def dashboard_divisao():
         if conn:
             conn.close()
         mensagem = "Erro ao carregar dados da divisão."
+        divisoes = []
 
     return render_template(
         'dashboard_divisao.html',
@@ -383,6 +697,7 @@ def dashboard_divisao():
         dados_divisao=dados_divisao,
         mensagem=mensagem
     )
+
 
 @app.route('/logout')
 def logout():
@@ -412,152 +727,424 @@ TABELAS_VALIDAS = {
 def inserir_dados():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    # Verifica permissões
+
+    # 🔐 Permissão
     permission_check = require_permission('inserir_dados')
     if permission_check:
         return permission_check
-    
+
+    registro = None
+    modo = 'inserir'
+
     if request.method == 'POST':
-        # 🔹 Se veio upload de planilha
+        changed_by = session['user']['username']
+
+        # ==========================================================
+        # 🔹 1) UPLOAD PLANILHA (UPSERT)
+        # ==========================================================
         if 'upload_planilha' in request.form:
             file = request.files.get('file')
-            if file:
-                try:
-                    df = pd.read_excel(file)
-
-                    # 🔹 Normaliza nomes das colunas para minúsculas e sem acentos
-                    df.columns = (
-                        df.columns
-                        .str.strip()
-                        .str.lower()
-                        .str.replace('ç', 'c')
-                        .str.replace('ã', 'a')
-                        .str.replace('â', 'a')
-                        .str.replace('á', 'a')
-                        .str.replace('í', 'i')
-                        .str.replace('é', 'e')
-                        .str.replace('õ', 'o')
-                        .str.replace('ô', 'o')
-                        .str.replace('ú', 'u')
-                    )
-
-                    # 🔹 Converte colunas de data
-                    for col in ['data', 'data da localizacao']:
-                        if col in df.columns:
-                            df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-
-                    # 🔹 Substitui NaN, NaT e strings vazias por None
-                    df = df.replace({pd.NaT: None}).where(pd.notnull(df), None)
-
-                    conn = config.get_pg_connection()
-                    cur = conn.cursor()
-
-                    # 🔹 Limpa todos os registros antes de inserir (segurança)
-                    cur.execute("DELETE FROM tabela_padrao;")
-
-                    # 🔹 Garante que a coluna data_registro exista
-                    cur.execute("""
-                        DO $$
-                        BEGIN
-                            IF NOT EXISTS (
-                                SELECT 1 FROM information_schema.columns
-                                WHERE table_name='tabela_padrao' AND column_name='data_registro'
-                            ) THEN
-                                ALTER TABLE tabela_padrao ADD COLUMN data_registro DATE DEFAULT CURRENT_DATE;
-                            END IF;
-                        END;
-                        $$;
-                    """)
-
-                    # 🔹 Insere os dados
-                    for _, row in df.iterrows():
-                        cur.execute("""
-                            INSERT INTO tabela_padrao (
-                                fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
-                                localizacao_fisica, data_registro, data_localizacao, observacoes, divisao
-                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        """, (
-                            row.get('fundo/colecao'),
-                            row.get('titulo / conteudo'),
-                            row.get('codigo de referencia'),
-                            row.get('notacao'),
-                            row.get('localizacao fisica'),
-                            date.today(),  # data_registro automática
-                            row.get('data da localizacao'),
-                            row.get('observacoes'),
-                            row.get('divisao')
-                        ))
-
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-
-                    flash("✅ Planilha inserida com sucesso!", "success")
-                    return redirect(url_for('inserir_dados'))
-
-                except Exception as e:
-                    flash(f"❌ Erro ao inserir planilha: {e}", "danger")
-                    return redirect(url_for('inserir_dados'))
-
-        # 🔹 Se veio do formulário manual
-        else:
-            dados = {
-                'fundo_colecao': request.form.get('fundo_colecao'),
-                'titulo_conteudo': request.form.get('titulo_conteudo'),
-                'codigo_referencia': request.form.get('codigo_referencia'),
-                'notacao': request.form.get('notacao'),
-                'localizacao_fisica': request.form.get('localizacao_fisica'),
-                'data_registro': request.form.get('data_registro') or None,
-                'data_localizacao': request.form.get('data_localizacao') or None,
-                'observacoes': request.form.get('observacoes'),
-                'divisao': request.form.get('divisao')
-            }
+            if not file:
+                flash("❌ Nenhum arquivo foi enviado.", "danger")
+                return redirect(url_for('inserir_dados'))
 
             try:
-                # ✅ Converte campos de data
-                for campo in ['data_registro', 'data_localizacao']:
-                    if dados[campo]:
-                        dados[campo] = datetime.strptime(dados[campo], "%Y-%m-%d").date()
+                df = pd.read_excel(file)
+
+                # ✅ Normalização robusta de headers (acentos/unicode/NBSP)
+                import unicodedata, re
+
+                def normalize_header(s: str) -> str:
+                    s = str(s or "")
+                    s = s.replace("\u00a0", " ")  # NBSP do Excel
+                    s = s.strip()
+                    s = unicodedata.normalize("NFKD", s)
+                    s = "".join(ch for ch in s if not unicodedata.combining(ch))  # remove acentos
+                    s = s.lower()
+                    s = re.sub(r"\s+", " ", s)  # normaliza espaços múltiplos
+                    return s
+
+                df.columns = [normalize_header(c) for c in df.columns]
+
+                # -----------------------------
+                # ✅ find_col
+                # -----------------------------
+                def find_col(possiveis):
+                    for c in df.columns:
+                        if c in possiveis:
+                            return c
+                    return None
+
+                col_codigo = find_col({
+                    'codigo de referencia', 'codigo referencia',
+                    'codigoreferencia', 'cod referencia', 'codreferencia',
+                    'codigo_referencia', 'cod_referencia'
+                })
+                col_divisao = find_col({'divisao'})
+                col_data_registro = find_col({'data', 'data registro', 'data do registro'})
+                col_data_localizacao = find_col({'data da localizacao', 'data localizacao'})
+                col_localizado = find_col({'localizado'})
+                col_fundo = find_col({'fundo/colecao', 'fundo / colecao', 'fundo colecao', 'fundo'})
+                col_titulo = find_col({'titulo / conteudo', 'titulo/conteudo', 'titulo conteudo', 'titulo'})
+                col_notacao = find_col({'notacao'})
+                col_local_fisico = find_col({'localizacao fisica', 'localizacao física', 'localizacao'})
+                col_obs = find_col({'observacoes', 'observação', 'observacoes ', 'observações', 'observacao'})
+
+                if not col_codigo:
+                    raise Exception("A planilha precisa ter a coluna 'Código de Referência' (ex.: Código de Referência).")
+                if not col_divisao:
+                    raise Exception("A planilha precisa ter a coluna 'Divisão' (ex.: Divisão).")
+
+                # Converte datas (se existirem)
+                if col_data_registro:
+                    df[col_data_registro] = pd.to_datetime(df[col_data_registro], errors='coerce').dt.date
+                if col_data_localizacao:
+                    df[col_data_localizacao] = pd.to_datetime(df[col_data_localizacao], errors='coerce').dt.date
+
+                # Localizado: Sim/Não etc.
+                if col_localizado:
+                    df[col_localizado] = (
+                        df[col_localizado].astype(str).str.strip().str.lower()
+                        .map({
+                            'sim': True, 's': True, 'true': True, '1': True, 'yes': True,
+                            'nao': False, 'não': False, 'n': False, 'false': False, '0': False, 'no': False
+                        })
+                        .fillna(False)
+                        .astype(bool)
+                    )
+                else:
+                    df['localizado'] = False
+                    col_localizado = 'localizado'
+
+                # Trata NaN/NaT
+                df = df.replace({pd.NaT: None}).where(pd.notnull(df), None)
+
+                # -----------------------------
+                # ✅ obrigatórios: código + divisão
+                # -----------------------------
+                df[col_codigo] = df[col_codigo].astype(str).str.strip()
+                df[col_divisao] = df[col_divisao].astype(str).str.strip().str.upper()
+
+                df_valid = df[
+                    (df[col_codigo].notna()) & (df[col_codigo] != '') &
+                    (df[col_divisao].notna()) & (df[col_divisao] != '')
+                ]
+
+                if df_valid.empty:
+                    raise Exception("Nenhuma linha válida: 'Código de Referência' e 'Divisão' são obrigatórios.")
+
+                linhas_ignoradas = int(len(df) - len(df_valid))
+                df = df_valid
+
+                if linhas_ignoradas > 0:
+                    flash(f"⚠️ {linhas_ignoradas} linha(s) foram ignoradas por falta de Código de Referência ou Divisão.", "warning")
+
+                # (opcional) valida divisões
+                DIVISOES_VALIDAS = {'DIJUD', 'DIPEX', 'DIPOP', 'DIDOC', 'DIDAS'}
+                invalidas = df[~df[col_divisao].isin(DIVISOES_VALIDAS)]
+                if not invalidas.empty:
+                    raise Exception("Planilha com divisão inválida. Use: DIJUD, DIPEX, DIPOP, DIDOC, DIDAS.")
+
+                # -----------------------------
+                # ✅ UPSERT (índice unique parcial => ON CONFLICT precisa do WHERE)
+                # -----------------------------
+                conn = config.get_pg_connection()
+                cur = conn.cursor()
+
+                inseridos = 0
+                atualizados = 0
+
+                for _, row in df.iterrows():
+                    cur.execute("""
+                        INSERT INTO tabela_padrao (
+                            fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
+                            localizacao_fisica, data_registro, data_localizacao,
+                            observacoes, divisao, localizado, inserido_por
+                        )
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (codigo_referencia)
+                        WHERE (codigo_referencia IS NOT NULL AND BTRIM(codigo_referencia) <> '')
+                        DO UPDATE
+                        SET fundo_colecao = EXCLUDED.fundo_colecao,
+                            titulo_conteudo = EXCLUDED.titulo_conteudo,
+                            notacao = EXCLUDED.notacao,
+                            localizacao_fisica = EXCLUDED.localizacao_fisica,
+                            data_registro = EXCLUDED.data_registro,
+                            data_localizacao = EXCLUDED.data_localizacao,
+                            observacoes = EXCLUDED.observacoes,
+                            divisao = EXCLUDED.divisao,
+                            localizado = EXCLUDED.localizado,
+                            alterado_em = NOW(),
+                            alterado_por = %s
+                        RETURNING (xmax = 0) AS inserted
+                    """, (
+                        row.get(col_fundo) if col_fundo else None,              # 1
+                        row.get(col_titulo) if col_titulo else None,            # 2
+                        row.get(col_codigo),                                    # 3
+                        row.get(col_notacao) if col_notacao else None,          # 4
+                        row.get(col_local_fisico) if col_local_fisico else None,# 5
+                        row.get(col_data_registro) if col_data_registro else None,      # 6
+                        row.get(col_data_localizacao) if col_data_localizacao else None,# 7
+                        row.get(col_obs) if col_obs else None,                  # 8
+                        row.get(col_divisao),                                   # 9
+                        bool(row.get(col_localizado)) if row.get(col_localizado) is not None else False,  # 10
+                        changed_by,                                             # 11 -> inserido_por
+                        changed_by                                              # 12 -> alterado_por
+                    ))
+                    was_inserted = cur.fetchone()[0]
+                    if was_inserted:
+                        inseridos += 1
                     else:
-                        if campo == 'data_registro':
-                            dados[campo] = date.today()
+                        atualizados += 1
+
+                conn.commit()
+                cur.close()
+                conn.close()
+
+                # Auditoria
+                try:
+                    audit_log(
+                        entity_type="REGISTRO",
+                        entity_id=None,
+                        action="UPLOAD_PLANILHA",
+                        details={
+                            "origem": "PLANILHA",
+                            "total_linhas_validas": int(len(df)),
+                            "linhas_ignoradas": int(linhas_ignoradas),
+                            "inseridos": int(inseridos),
+                            "atualizados": int(atualizados)
+                        },
+                        created_by=changed_by
+                    )
+                except Exception:
+                    pass
+
+                flash("✅ Planilha inserida/atualizada com sucesso!", "success")
+                return redirect(url_for('inserir_dados'))
+
+            except Exception as e:
+                flash(f"❌ Erro ao inserir planilha: {e}", "danger")
+                return redirect(url_for('inserir_dados'))
+
+        # ==========================================================
+        # 🔍 2) CONSULTA POR CÓDIGO (se você usar esse botão em outro form)
+        # ==========================================================
+        elif 'verificar_codigo' in request.form:
+            codigo = (request.form.get('codigo_referencia') or '').strip()
+            if not codigo:
+                flash("❌ Informe um Código de Referência.", "danger")
+                return redirect(url_for('inserir_dados'))
+
+            conn = config.get_pg_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
+                       localizacao_fisica, data_registro, data_localizacao, observacoes, divisao, localizado
+                FROM tabela_padrao
+                WHERE codigo_referencia = %s
+            """, (codigo,))
+            registro = cur.fetchone()
+            cur.close()
+            conn.close()
+
+            if registro:
+                modo = 'editar'
+                flash("⚠️ Código encontrado. Editando registro.", "warning")
+            else:
+                flash("ℹ️ Código não encontrado. Novo registro.", "info")
+
+            return render_template('inserir_dados.html', modo=modo, registro=registro)
+
+        # ==========================================================
+        # ✏️ 3) EDITAR EXISTENTE (por código)
+        # ==========================================================
+        elif 'editar_registro' in request.form:
+            try:
+                codigo = (request.form.get('codigo_referencia') or '').strip()
+                divisao = (request.form.get('divisao') or '').strip().upper()
+                if not codigo:
+                    flash("❌ Código de Referência é obrigatório.", "danger")
+                    return redirect(url_for('inserir_dados'))
+                if not divisao:
+                    flash("❌ Divisão é obrigatória.", "danger")
+                    return redirect(url_for('inserir_dados'))
+
+                data_localizacao = request.form.get('data_localizacao') or None
+                if data_localizacao:
+                    try:
+                        data_localizacao = datetime.strptime(data_localizacao, "%Y-%m-%d").date()
+                    except ValueError:
+                        data_localizacao = None
+
+                localizado = (request.form.get('localizado') == 'true')
 
                 conn = config.get_pg_connection()
                 cur = conn.cursor()
                 cur.execute("""
+                    UPDATE tabela_padrao SET
+                        fundo_colecao = %s,
+                        titulo_conteudo = %s,
+                        notacao = %s,
+                        localizacao_fisica = %s,
+                        data_localizacao = %s,
+                        observacoes = %s,
+                        divisao = %s,
+                        localizado = %s,
+                        alterado_em = NOW(),
+                        alterado_por = %s
+                    WHERE codigo_referencia = %s
+                """, (
+                    request.form.get('fundo_colecao'),
+                    request.form.get('titulo_conteudo'),
+                    request.form.get('notacao'),
+                    request.form.get('localizacao_fisica'),
+                    data_localizacao,
+                    request.form.get('observacoes'),
+                    divisao,
+                    localizado,
+                    changed_by,
+                    codigo
+                ))
+                conn.commit()
+                cur.close()
+                conn.close()
+
+                flash("✅ Registro atualizado com sucesso!", "success")
+                return redirect(url_for('inserir_dados'))
+
+            except Exception as e:
+                flash(f"❌ Erro ao editar registro: {e}", "danger")
+                return redirect(url_for('inserir_dados'))
+
+        # ==========================================================
+        # ➕ 4) INSERÇÃO MANUAL (UPSERT) - botão inserir_manual
+        # ==========================================================
+        elif 'inserir_manual' in request.form:
+            try:
+                codigo = (request.form.get('codigo_referencia') or '').strip()
+                divisao = (request.form.get('divisao') or '').strip().upper()
+
+                if not codigo:
+                    flash("❌ Código de Referência é obrigatório.", "danger")
+                    return redirect(url_for('inserir_dados'))
+                if not divisao:
+                    flash("❌ Divisão é obrigatória.", "danger")
+                    return redirect(url_for('inserir_dados'))
+
+                data_registro = request.form.get('data_registro') or None
+                if data_registro:
+                    try:
+                        data_registro = datetime.strptime(data_registro, "%Y-%m-%d").date()
+                    except ValueError:
+                        data_registro = None
+
+                data_localizacao = request.form.get('data_localizacao') or None
+                if data_localizacao:
+                    try:
+                        data_localizacao = datetime.strptime(data_localizacao, "%Y-%m-%d").date()
+                    except ValueError:
+                        data_localizacao = None
+
+                localizado = (request.form.get('localizado') == 'true')
+
+                dados = {
+                    'fundo_colecao': request.form.get('fundo_colecao'),
+                    'titulo_conteudo': request.form.get('titulo_conteudo'),
+                    'codigo_referencia': codigo,
+                    'notacao': request.form.get('notacao'),
+                    'localizacao_fisica': request.form.get('localizacao_fisica'),
+                    'data_registro': data_registro,
+                    'data_localizacao': data_localizacao,
+                    'observacoes': request.form.get('observacoes'),
+                    'divisao': divisao,
+                    'localizado': localizado,
+                    'inserido_por': changed_by
+                }
+
+                conn = config.get_pg_connection()
+                cur = conn.cursor()
+
+                cur.execute("""
                     INSERT INTO tabela_padrao (
                         fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
-                        localizacao_fisica, data_registro, data_localizacao, observacoes, divisao
-                    ) VALUES (%(fundo_colecao)s, %(titulo_conteudo)s, %(codigo_referencia)s,
-                              %(notacao)s, %(localizacao_fisica)s, %(data_registro)s,
-                              %(data_localizacao)s, %(observacoes)s, %(divisao)s)
+                        localizacao_fisica, data_registro, data_localizacao,
+                        observacoes, divisao, localizado, inserido_por
+                    )
+                    VALUES (
+                        %(fundo_colecao)s, %(titulo_conteudo)s, %(codigo_referencia)s, %(notacao)s,
+                        %(localizacao_fisica)s, %(data_registro)s, %(data_localizacao)s,
+                        %(observacoes)s, %(divisao)s, %(localizado)s, %(inserido_por)s
+                    )
+                    ON CONFLICT (codigo_referencia)
+                    WHERE (codigo_referencia IS NOT NULL AND BTRIM(codigo_referencia) <> '')
+                    DO UPDATE
+                    SET fundo_colecao = EXCLUDED.fundo_colecao,
+                        titulo_conteudo = EXCLUDED.titulo_conteudo,
+                        notacao = EXCLUDED.notacao,
+                        localizacao_fisica = EXCLUDED.localizacao_fisica,
+                        data_registro = EXCLUDED.data_registro,
+                        data_localizacao = EXCLUDED.data_localizacao,
+                        observacoes = EXCLUDED.observacoes,
+                        divisao = EXCLUDED.divisao,
+                        localizado = EXCLUDED.localizado,
+                        alterado_em = NOW(),
+                        alterado_por = %(inserido_por)s
                 """, dados)
 
                 conn.commit()
                 cur.close()
                 conn.close()
-                flash("✅ Registro inserido com sucesso!", "success")
+
+                try:
+                    audit_log(
+                        entity_type="REGISTRO",
+                        entity_id=None,
+                        action="INSERIR_OU_ATUALIZAR_MANUAL",
+                        details={
+                            "codigo_referencia": codigo,
+                            "divisao": divisao,
+                            "localizado": bool(localizado),
+                            "origem": "FORM_MANUAL"
+                        },
+                        created_by=changed_by
+                    )
+                except Exception:
+                    pass
+
+                flash("✅ Registro inserido/atualizado com sucesso!", "success")
                 return redirect(url_for('inserir_dados'))
 
             except Exception as e:
                 flash(f"❌ Erro ao inserir registro: {e}", "danger")
                 return redirect(url_for('inserir_dados'))
 
-    return render_template('inserir_dados.html')
+        # ==========================================================
+        # ✅ fallback (garante que nunca retorna None)
+        # ==========================================================
+        flash("⚠️ Nenhuma ação reconhecida no formulário.", "warning")
+        return redirect(url_for('inserir_dados'))
+
+    # GET
+    return render_template('inserir_dados.html', modo=modo)
 
 
 
-# Rota para download da planilha modelo
+
+
+
+
+# Rota para download da planilha modelo (com validação)
 @app.route('/download_modelo')
 def download_modelo():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
+
     # Verifica permissões
-    permission_check = require_permission('inserir_dados')  # Usa mesma permissão de inserir_dados
+    permission_check = require_permission('inserir_dados')
     if permission_check:
         return permission_check
+
+    # Modelo (ordem deve bater com o seu import)
     df_modelo = pd.DataFrame(columns=[
         'Fundo/Coleção',
         'Título / Conteúdo',
@@ -566,123 +1153,262 @@ def download_modelo():
         'Localização física',
         'Data',
         'Data da localização',
+        'Localizado',   # ✅ validação Sim/Não
         'Observações',
-        'Divisão'
+        'Divisão'       # ✅ validação DIJUD/DIPEX/DIPOP/DIDOC/DIDAS
     ])
+
+    # Cria o Excel em memória
     output = BytesIO()
     df_modelo.to_excel(output, index=False)
     output.seek(0)
 
+    # Abre com openpyxl para colocar validações
+    wb = load_workbook(output)
+    ws = wb.active
+
+    # Letras das colunas conforme a ordem acima:
+    # A Fundo/Coleção
+    # B Título / Conteúdo
+    # C Código de Referência
+    # D Notação
+    # E Localização física
+    # F Data
+    # G Data da localização
+    # H Localizado
+    # I Observações
+    # J Divisão
+    COL_LOCALIZADO = "H"
+    COL_DIVISAO = "J"
+
+    # Validação: Localizado -> Sim/Não
+    dv_localizado = DataValidation(type="list", formula1='"Sim,Não"', allow_blank=True)
+    dv_localizado.error = "Valor inválido. Use apenas: Sim ou Não."
+    dv_localizado.errorTitle = "Localizado"
+    dv_localizado.prompt = "Escolha Sim ou Não."
+    dv_localizado.promptTitle = "Localizado"
+
+    # Validação: Divisão -> lista fixa
+    dv_divisao = DataValidation(type="list", formula1='"DIJUD,DIPEX,DIPOP,DIDOC,DIDAS"', allow_blank=False)
+    dv_divisao.error = "Valor inválido. Selecione uma divisão da lista."
+    dv_divisao.errorTitle = "Divisão"
+    dv_divisao.prompt = "Selecione uma divisão."
+    dv_divisao.promptTitle = "Divisão"
+
+    ws.add_data_validation(dv_localizado)
+    ws.add_data_validation(dv_divisao)
+
+    # Aplica validações (da linha 2 até 5000)
+    dv_localizado.add(f"{COL_LOCALIZADO}2:{COL_LOCALIZADO}5000")
+    dv_divisao.add(f"{COL_DIVISAO}2:{COL_DIVISAO}5000")
+
+    # Salva de volta em um novo buffer
+    out2 = BytesIO()
+    wb.save(out2)
+    out2.seek(0)
+
     return send_file(
-        output,
+        out2,
         as_attachment=True,
         download_name="modelo_insercao_dados.xlsx",
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+def get_divisoes_permitidas(username, is_admin):
+    """
+    - Admin: lista todas as divisões existentes no banco de DADOS (tabela_padrao)
+    - Usuário comum: lista somente divisões liberadas no banco de SEGURANÇA (divisao_permissions)
+    """
+
+    # ADMIN -> buscar no banco de DADOS
+    if int(is_admin) == 1:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT TRIM(divisao)
+            FROM tabela_padrao
+            WHERE divisao IS NOT NULL
+              AND TRIM(divisao) <> ''
+            ORDER BY TRIM(divisao);
+        """)
+        divisoes = [row[0] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return divisoes
+
+    # USUÁRIO COMUM -> buscar no banco de SEGURANÇA
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT TRIM(dp.divisao)
+        FROM divisao_permissions dp
+        WHERE dp.username = %s
+        ORDER BY TRIM(dp.divisao);
+    """, (username,))
+    divisoes = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return divisoes
+
+
 
 
 @app.route('/pesquisar_divisao', methods=['GET', 'POST'])
 def pesquisar_divisao():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    # Verifica permissões
+
+    # 🔐 permissão
     permission_check = require_permission('pesquisar_divisao')
     if permission_check:
         return permission_check
-    
-    resultados = []
-    colunas = []
-    total_nao_localizado = 0
-    mensagem = None
+
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+
+    # ✅ Carrega lista de divisões pro select
+    cur.execute("""
+        SELECT DISTINCT UPPER(TRIM(divisao)) AS divisao
+        FROM tabela_padrao
+        WHERE divisao IS NOT NULL AND TRIM(divisao) <> ''
+        ORDER BY UPPER(TRIM(divisao));
+    """)
+    divisoes = [row[0] for row in cur.fetchall()]
+
     divisao_selecionada = None
+    resultados = []
+    mensagem = None
+    total_nao_localizado = 0
 
-    try:
-        conn = config.get_pg_connection()
-        cur = conn.cursor()
+    # ---------------------------------------
+    # ✅ 1) Captura divisão selecionada
+    # ---------------------------------------
+    # Se vier por GET (?divisao=DIPEX), usa também
+    if request.method == 'GET':
+        divisao_selecionada = request.args.get('divisao')
+        if divisao_selecionada:
+            divisao_selecionada = divisao_selecionada.strip().upper()
 
-        # 🔹 Buscar todas as divisões disponíveis
-        cur.execute("SELECT DISTINCT divisao FROM tabela_padrao ORDER BY divisao;")
-        divisoes = [row[0] for row in cur.fetchall()]
+    # Se vier por POST (form select), prioriza POST
+    if request.method == 'POST':
+        divisao_selecionada = request.form.get('divisao') or request.form.get('divisao_selecionada')
+        if divisao_selecionada:
+            divisao_selecionada = divisao_selecionada.strip().upper()
 
-        if request.method == 'POST':
-            divisao = request.form.get('divisao')
-            divisao_selecionada = divisao
-
-            # 🔹 Buscar colunas pesquisáveis (exceto id e data_insercao)
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'tabela_padrao'
-                AND column_name NOT IN ('id', 'data_insercao');
-            """)
-            colunas = [row[0] for row in cur.fetchall()]
-
-            coluna = request.form.get('coluna')
-            termo = request.form.get('termo')
-
-            print(f"\n🟦 [DEBUG] Divisão selecionada: {divisao}")
-            print(f"🟦 [DEBUG] Coluna: {coluna}")
-            print(f"🟦 [DEBUG] Termo: {termo}")
-
-            # 🔹 Pesquisa por termo em coluna específica
-            if coluna and termo:
-                if coluna not in colunas:
-                    mensagem = "Coluna inválida selecionada!"
-                    print("❌ [DEBUG] Coluna inválida!")
-                else:
-                    query = f"""
-                        SELECT * FROM tabela_padrao
-                        WHERE divisao = %s AND CAST({coluna} AS TEXT) ILIKE %s
-                        ORDER BY id DESC;
-                    """
-                    print(f"🟩 [DEBUG] Executando query:\n{query}")
-                    cur.execute(query, (divisao, f"%{termo}%"))
-                    resultados = cur.fetchall()
-                    print(f"🟩 [DEBUG] Registros encontrados: {len(resultados)}")
-
-                    if not resultados:
-                        mensagem = f"Nenhum resultado encontrado para '{termo}'."
-
-            # 🔹 Pesquisa apenas pela divisão (sem termo)
-            elif divisao:
-                print(f"🟨 [DEBUG] Pesquisa apenas pela divisão: {divisao}")
-                cur.execute("""
-                    SELECT * FROM tabela_padrao
-                    WHERE divisao = %s
-                    ORDER BY id DESC;
-                """, (divisao,))
-                resultados = cur.fetchall()
-                print(f"🟨 [DEBUG] Total registros da divisão: {len(resultados)}")
-
-            # 🔹 Contar total de “não localizado”
-            cur.execute("""
-                SELECT COUNT(*) FROM tabela_padrao
-                WHERE divisao = %s AND observacoes ILIKE '%%não localizado%%';
-            """, (divisao,))
-            total_nao_localizado = cur.fetchone()[0]
-            print(f"🟧 [DEBUG] Total 'não localizado': {total_nao_localizado}")
-
+    # Se ainda não tem divisão selecionada, só renderiza a tela
+    if not divisao_selecionada:
         cur.close()
         conn.close()
+        return render_template(
+            'pesquisar_divisao.html',
+            divisoes=divisoes,
+            divisao_selecionada=None,
+            resultados=[],
+            mensagem=None,
+            total_nao_localizado=0
+        )
 
-    except Exception as e:
-        if conn:
-            conn.rollback()
-            conn.close()
-        mensagem = f"❌ Erro ao pesquisar registros: {e}"
-        divisoes = []
-        print(f"❌ [ERRO DEBUG] {e}")
+    # ---------------------------------------
+    # ✅ 2) Contagem de não localizados
+    # ---------------------------------------
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM tabela_padrao
+        WHERE UPPER(TRIM(divisao)) = %s
+          AND COALESCE(localizado, FALSE) = FALSE
+    """, (divisao_selecionada,))
+    total_nao_localizado = cur.fetchone()[0] or 0
+
+    # ---------------------------------------
+    # ✅ 3) Filtro opcional (coluna + termo)
+    # ---------------------------------------
+    coluna = None
+    termo = None
+
+    if request.method == 'POST' and request.form.get('coluna') and request.form.get('termo'):
+        coluna = request.form.get('coluna')
+        termo = (request.form.get('termo') or '').strip()
+
+    # colunas permitidas (proteção contra SQL injection)
+    colunas_permitidas = {
+        'todas',
+        'fundo_colecao',
+        'titulo_conteudo',
+        'codigo_referencia',
+        'notacao',
+        'localizacao_fisica',
+        'data_registro',
+        'data_localizacao',
+        'observacoes',
+        'divisao'
+    }
+
+    if coluna and coluna not in colunas_permitidas:
+        coluna = None
+
+    # ---------------------------------------
+    # ✅ 4) Consulta de resultados
+    # ---------------------------------------
+    base_select = """
+        SELECT
+            id,
+            fundo_colecao,
+            titulo_conteudo,
+            codigo_referencia,
+            notacao,
+            localizacao_fisica,
+            data_registro,
+            data_localizacao,
+            observacoes,
+            UPPER(TRIM(divisao)) AS divisao,
+            COALESCE(localizado, FALSE) AS localizado
+        FROM tabela_padrao
+        WHERE UPPER(TRIM(divisao)) = %s
+    """
+
+    params = [divisao_selecionada]
+
+    if coluna and termo:
+        if coluna == 'todas':
+            base_select += """
+              AND (
+                COALESCE(fundo_colecao,'') ILIKE %s OR
+                COALESCE(titulo_conteudo,'') ILIKE %s OR
+                COALESCE(codigo_referencia,'') ILIKE %s OR
+                COALESCE(notacao,'') ILIKE %s OR
+                COALESCE(localizacao_fisica,'') ILIKE %s OR
+                COALESCE(observacoes,'') ILIKE %s OR
+                COALESCE(divisao,'') ILIKE %s
+              )
+            """
+            like = f"%{termo}%"
+            params.extend([like, like, like, like, like, like, like])
+        else:
+            base_select += f" AND COALESCE({coluna}, '') ILIKE %s "
+            params.append(f"%{termo}%")
+
+    base_select += " ORDER BY id DESC LIMIT 2000;"  # limite de segurança
+
+    cur.execute(base_select, tuple(params))
+    resultados = cur.fetchall()
+
+    if not resultados:
+        mensagem = "Nenhum resultado encontrado para essa divisão/filtro."
+
+    cur.close()
+    conn.close()
 
     return render_template(
         'pesquisar_divisao.html',
         divisoes=divisoes,
         divisao_selecionada=divisao_selecionada,
         resultados=resultados,
-        total_nao_localizado=total_nao_localizado,
         mensagem=mensagem,
-        colunas=colunas
+        total_nao_localizado=total_nao_localizado
     )
+    
+
+
 
 
 
@@ -744,16 +1470,23 @@ def exportar_divisao():
 
 
 
+
+
+
+
+
 @app.route('/editar_registro/<int:id>', methods=['GET', 'POST'])
 def editar_registro(id):
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    # Verifica permissões
+
     permission_check = require_permission('editar_registro')
     if permission_check:
         return permission_check
-    
+
+    changed_by = session['user']['username']
+    DIVISOES_VALIDAS = {'DIJUD', 'DIPEX', 'DIPOP', 'DIDOC', 'DIDAS'}
+
     conn = config.get_pg_connection()
     cur = conn.cursor()
 
@@ -764,18 +1497,31 @@ def editar_registro(id):
             codigo_referencia = request.form.get('codigo_referencia')
             notacao = request.form.get('notacao')
             localizacao_fisica = request.form.get('localizacao_fisica')
+
             data_registro = request.form.get('data_registro') or None
             data_localizacao = request.form.get('data_localizacao') or None
-            observacoes = request.form.get('observacoes')
-            divisao = request.form.get('divisao')
 
-            # Converte as datas corretamente
+            observacoes = request.form.get('observacoes')
+
+            divisao = (request.form.get('divisao') or '').strip().upper()
+            if not divisao or divisao not in DIVISOES_VALIDAS:
+                flash("❌ Divisão inválida. Selecione uma divisão válida.", "danger")
+                return redirect(url_for('editar_registro', id=id))
+
+            # ✅ Localizado (true/false do select)
+            localizado = (request.form.get('localizado') == 'true')
+
+            # Converte datas
             if data_registro:
                 data_registro = datetime.strptime(data_registro, "%Y-%m-%d").date()
+
             if data_localizacao:
                 data_localizacao = datetime.strptime(data_localizacao, "%Y-%m-%d").date()
 
-            # Atualiza o registro
+            # ✅ auto-preenche data_localizacao quando localizado = true e data não foi informada
+            if localizado and not data_localizacao:
+                data_localizacao = date.today()
+
             cur.execute("""
                 UPDATE tabela_padrao
                 SET fundo_colecao = %s,
@@ -786,134 +1532,91 @@ def editar_registro(id):
                     data_registro = %s,
                     data_localizacao = %s,
                     observacoes = %s,
-                    divisao = %s
+                    divisao = %s,
+                    localizado = %s,
+                    alterado_em = NOW(),
+                    alterado_por = %s
                 WHERE id = %s
             """, (
                 fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
                 localizacao_fisica, data_registro, data_localizacao,
-                observacoes, divisao, id
+                observacoes, divisao, localizado, changed_by, id
             ))
 
             conn.commit()
             flash("✅ Registro atualizado com sucesso!", "success")
 
-            # Após editar, volta para a página da divisão
+            try:
+                audit_log(
+                    entity_type="REGISTRO",
+                    entity_id=id,
+                    action="EDITAR_REGISTRO",
+                    details={
+                        "divisao": divisao,
+                        "codigo_referencia": codigo_referencia,
+                        "localizado": bool(localizado),
+                        "data_localizacao": str(data_localizacao) if data_localizacao else None
+                    },
+                    created_by=changed_by
+                )
+            except Exception:
+                pass
+
+            cur.close()
+            conn.close()
             return redirect(url_for('pesquisar_divisao', divisao=divisao))
 
         except Exception as e:
             conn.rollback()
+            cur.close()
+            conn.close()
             flash(f"❌ Erro ao atualizar registro: {e}", "danger")
             return redirect(url_for('editar_registro', id=id))
 
-    # 🔹 Método GET — busca os dados do registro
+    # GET registro
     cur.execute("""
         SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
-               localizacao_fisica, data_registro, data_localizacao, observacoes, divisao
+               localizacao_fisica, data_registro, data_localizacao, observacoes, divisao,
+               localizado
         FROM tabela_padrao
         WHERE id = %s
     """, (id,))
     registro = cur.fetchone()
 
-    cur.close()
-    conn.close()
-
     if not registro:
+        cur.close()
+        conn.close()
         flash("❌ Registro não encontrado.", "danger")
         return redirect(url_for('pesquisar_divisao'))
 
-    # Mapear os campos para o template
     colunas = [
         'id', 'fundo_colecao', 'titulo_conteudo', 'codigo_referencia', 'notacao',
-        'localizacao_fisica', 'data_registro', 'data_localizacao', 'observacoes', 'divisao'
+        'localizacao_fisica', 'data_registro', 'data_localizacao', 'observacoes', 'divisao',
+        'localizado'
     ]
     registro_dict = dict(zip(colunas, registro))
 
-    return render_template('editar_registro.html', registro=registro_dict)
+    # GET tentativas
+    cur.execute("""
+        SELECT status, observacao, criado_por, criado_em
+        FROM documento_tentativas
+        WHERE registro_id = %s
+        ORDER BY criado_em DESC
+    """, (id,))
+    tentativas = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template('editar_registro.html', registro=registro_dict, tentativas=tentativas)
 
 
 
 
-@app.route('/upload', methods=['GET', 'POST'])
-def upload():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    
-    # Verifica permissões
-    permission_check = require_permission('upload')
-    if permission_check:
-        return permission_check
-    
-    if request.method == 'POST':
-        file = request.files['file']
-        if not file:
-            flash("Nenhum arquivo enviado", "danger")
-            return redirect(url_for('upload'))
-        try:
-            # Lê SEM usar cabeçalho, mas depois pula a primeira linha
-            df_dict = pd.read_excel(file, sheet_name=None, engine="openpyxl", header=None)
-            
-            conn = get_pg_connection()
-            cur = conn.cursor()
-            
-            for sheet_name, df in df_dict.items():
-                tabela = sheet_name.strip().lower()
-                tabelas_validas = ["codes_dijud", "codes_didop", "codes_dipex", "codac_didas", "codac_didoc"]
-                
-                if tabela not in tabelas_validas:
-                    flash(f"Aba {sheet_name} não corresponde a nenhuma tabela válida!", "danger")
-                    continue
-                
-                # PULA A PRIMEIRA LINHA (cabeçalho)
-                df = df.iloc[1:]
-                
-                if len(df) == 0:
-                    flash(f"Aba {sheet_name} não possui dados após o cabeçalho!", "warning")
-                    continue
-                
-                # Busca as colunas reais do banco de dados
-                cur.execute(f"""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = '{tabela}'
-                    AND column_name NOT IN ('id', 'updated_at', 'created_at')
-                    ORDER BY ordinal_position
-                """)
-                colunas_banco = [row[0] for row in cur.fetchall()]
-                
-                if len(colunas_banco) == 0:
-                    flash(f"Não foi possível obter colunas da tabela {tabela}!", "danger")
-                    continue
-                
-                # Verifica se o número de colunas bate
-                if len(df.columns) != len(colunas_banco):
-                    flash(f"Aba {sheet_name}: número de colunas ({len(df.columns)}) não bate com o banco ({len(colunas_banco)})!", "danger")
-                    continue
-                
-                # Debug
-                print(f"Tabela: {tabela}")
-                print(f"Colunas do banco: {colunas_banco}")
-                print(f"Primeiras linhas (após pular cabeçalho):\n{df.head()}")
-                
-                # Monta SQL
-                placeholders = ", ".join(["%s"] * len(colunas_banco))
-                insert_sql = f'INSERT INTO {tabela} ({", ".join(colunas_banco)}) VALUES ({placeholders})'
-                
-                # Inserir linha a linha mantendo os dados originais
-                for _, row in df.iterrows():
-                    valores = list(row)
-                    cur.execute(insert_sql, valores)
-            
-            conn.commit()
-            cur.close()
-            conn.close()
-            flash("Upload realizado com sucesso!", "success")
-            return redirect(url_for('upload'))
-            
-        except Exception as e:
-            flash(f"Erro no upload: {str(e)}", "danger")
-            return redirect(url_for('upload'))
-            
-    return render_template('upload.html')
+
+
+
+
 
 @app.route('/editar_redirect', methods=['GET'])
 def editar_redirect():
@@ -1019,62 +1722,423 @@ def insights():
     if permission_check:
         return permission_check
     return render_template('insights.html')
+    
+
+@app.route('/admin/permissoes', methods=['GET', 'POST'])
+@login_required
+def permissoes():
+    divisoes = get_divisoes()
+
+    return render_template(
+        'permissoes.html',
+        divisoes=divisoes,
+        page_labels=page_labels
+    )
+def get_divisoes():
+    conn = get_pg_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT DISTINCT divisao
+        FROM tabela_padrao
+        WHERE divisao IS NOT NULL
+          AND TRIM(divisao) <> ''
+        ORDER BY divisao;
+    """)
+
+    divisoes = [row[0] for row in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    return divisoes
+@app.route('/permissions/divisao/action', methods=['POST'])
+def change_divisao_permission():
+
+    if 'user' not in session:
+        return jsonify(success=False, message="Sessão expirada"), 401
+
+    if session['user']['is_admin'] != 1:
+        return jsonify(success=False, message="Sem permissão"), 403
+
+    data = request.get_json()
+
+    username = data.get('username')
+    divisao = data.get('divisao')
+    action = data.get('action')  # GRANT | REMOVE
+
+    if not username or not divisao or action not in ['GRANT', 'REMOVE']:
+        return jsonify(success=False, message="Dados inválidos"), 400
+
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+
+    try:
+        if action == 'GRANT':
+            cur.execute("""
+                INSERT INTO divisao_permissions (username, divisao)
+                SELECT %s, %s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM divisao_permissions
+                    WHERE username = %s AND divisao = %s
+                )
+            """, (username, divisao, username, divisao))
+
+            audit_action = 'CONCEDIDO'
+
+        else:
+            cur.execute("""
+                DELETE FROM divisao_permissions
+                WHERE username = %s AND divisao = %s
+            """, (username, divisao))
+
+            audit_action = 'REMOVIDO'
+
+        # 🔐 AUDITORIA (PADRÃO EXISTENTE)
+        cur.execute("""
+            INSERT INTO permissions_audit
+            (page, username, action, changed_by)
+            VALUES (%s, %s, %s, %s)
+        """, (
+            f'DIVISAO:{divisao}',
+            username,
+            audit_action,
+            session['user']['username']
+        ))
+
+        conn.commit()
+
+        return jsonify(
+            success=True,
+            message=f"Divisão {divisao} {audit_action.lower()}"
+        )
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify(success=False, message=str(e)), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+
 
 # -------------------
 # Página de Permissões
 # -------------------
 
-@app.route('/permissions', methods=['GET', 'POST'])
+@app.route('/permissions')
 def permissions():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    # Apenas admin pode acessar permissões
+
     if session['user']['is_admin'] != 1:
         return redirect(url_for('sem_permissao'))
 
-    if request.method == 'POST':
-        # Recebe os dados do formulário
-        data = request.form.to_dict(flat=False)  # flat=False para pegar listas
-        # Exemplo: {'home': ['username1', 'username2'], 'search': ['username3']}
-        try:
-            for page, usernames in data.items():
-                save_page_permissions(page, usernames)  # Função que salva no banco
-            return jsonify(success=True, message="Permissões salvas com sucesso!")
-        except Exception as e:
-            return jsonify(success=False, message=f"Erro ao salvar permissões: {e}")
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+
+    # usuários
+    cur.execute("SELECT username FROM users ORDER BY username")
+    all_usernames = [r[0] for r in cur.fetchall()]
+
+    # páginas
+    pages = [
+        'home', 'search', 'inserir_dados', 'dashboard_divisao',
+        'pesquisar_divisao', 'editar_registro', 'upload',
+        'editar', 'insights', 'permissions'
+    ]
+
+    page_labels = {
+        'home': 'Home',
+        'search': 'Pesquisa Docjud',
+        'inserir_dados': 'Inserir Dados',
+        'dashboard_divisao': 'Dashboard Divisão',
+        'pesquisar_divisao': 'Pesquisar Divisão',
+        'editar_registro': 'Editar Registro',
+        'editar': 'Editar',
+        'audit': 'Log de Auditoria',
+        'permissions': 'Permissões'
+    }
+
+    # permissões por página
+    cur.execute("SELECT page, username FROM page_permissions")
+    page_permissions = {}
+    for page, user in cur.fetchall():
+        page_permissions.setdefault(page, []).append(user)
+
+    # 🔹 divisões (AGORA FUNCIONA)
+    divisoes = get_divisoes()
+
+    # permissões por divisão
+    cur.execute("SELECT username, divisao FROM divisao_permissions")
+    divisao_permissions = [f"{u}::{d}" for u, d in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    return render_template(
+        'permissions.html',
+        all_usernames=all_usernames,
+        pages=pages,
+        page_labels=page_labels,
+        page_permissions=page_permissions,
+        divisoes=divisoes,
+        divisao_permissions=divisao_permissions
+    )
+
+@app.route('/permissions/page/bulk_update', methods=['POST'])
+@login_required
+def bulk_update_page_permissions():
+    data = request.json
+
+    username = data.get('username')
+    new_pages = set(data.get('pages', []))  # páginas marcadas no frontend
+
+    if not username:
+        return jsonify(success=False, message="Usuário não informado")
+
+    conn = get_pg_connection()
+    cur = conn.cursor()
+
+    # 🔹 Busca permissões atuais do usuário
+    cur.execute("""
+        SELECT page
+        FROM page_permissions
+        WHERE username = %s
+    """, (username,))
+    current_pages = {row[0] for row in cur.fetchall()}
+
+    # 🔹 Diferenças
+    pages_to_add = new_pages - current_pages
+    pages_to_remove = current_pages - new_pages
+
+    # 🔹 Concede novas permissões
+    for page in pages_to_add:
+        cur.execute("""
+            INSERT INTO page_permissions (username, page)
+            VALUES (%s, %s)
+        """, (username, page))
+
+        # 🔍 Auditoria (GRANT)
+        cur.execute("""
+            INSERT INTO permissions_audit
+            (username, page, action, changed_by, changed_at)
+            VALUES (%s, %s, 'GRANT', %s, %s)
+        """, (
+            username,
+            page,
+            current_user.username,
+            datetime.now()
+        ))
+
+    # 🔹 Remove permissões
+    for page in pages_to_remove:
+        cur.execute("""
+            DELETE FROM page_permissions
+            WHERE username = %s AND page = %s
+        """, (username, page))
+
+        # 🔍 Auditoria (REMOVE)
+        cur.execute("""
+            INSERT INTO permissions_audit
+            (username, page, action, changed_by, changed_at)
+            VALUES (%s, %s, 'REMOVE', %s, %s)
+        """, (
+            username,
+            page,
+            current_user.username,
+            datetime.now()
+        ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return jsonify(
+        success=True,
+        message="Permissões atualizadas com sucesso"
+    )
+
+@app.route('/permissions_audit')
+def permissions_audit():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    # Apenas admin
+    if session['user']['is_admin'] != 1:
+        return redirect(url_for('sem_permissao'))
+
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            page,
+            username,
+            action,
+            changed_by,
+            changed_at
+        FROM permissions_audit
+        ORDER BY changed_at DESC
+        LIMIT 500
+    """)
+
+    logs = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        'permissions_audit.html',
+        logs=logs
+    )
+
+@app.route('/permissions/remove', methods=['POST'])
+def remove_permission():
+    if 'user' not in session:
+        return jsonify(success=False, message="Não autenticado")
+
+    if session['user']['is_admin'] != 1:
+        return jsonify(success=False, message="Sem permissão")
+
+    page = request.form.get('page')
+    username = request.form.get('username')
+    changed_by = session['user']['username']
+
+    conn = get_postgres_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        DELETE FROM page_permissions
+        WHERE page = %s AND username = %s
+        """,
+        (page, username)
+    )
+
+    cursor.execute(
+        """
+        INSERT INTO permissions_audit
+        (page, username, action, changed_by)
+        VALUES (%s, %s, 'REMOVIDO', %s)
+        """,
+        (page, username, changed_by)
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify(success=True)
+
+@app.route('/permissions/action', methods=['POST'])
+def permission_action():
+    if 'user' not in session:
+        return jsonify(success=False, message="Não autenticado"), 401
+
+    if session['user'].get('is_admin') != 1:
+        return jsonify(success=False, message="Sem permissão"), 403
+
+    data = request.get_json(silent=True) or {}
+    page = (data.get('page') or '').strip()
+    username = (data.get('username') or '').strip()
+    action = (data.get('action') or '').strip().upper()
+    changed_by = session['user']['username']
+
+    if not page or not username or action not in ('GRANT', 'REMOVE'):
+        return jsonify(success=False, message="Dados inválidos"), 400
+
+    try:
+        if action == 'GRANT':
+            changed = grant_permission(page, username)
+
+            if changed:
+                log_permission_audit(page, username, 'CONCEDIDO', changed_by)
+                try:
+                    audit_log(
+                        entity_type="PERMISSAO",
+                        entity_id=None,
+                        action="CONCEDER_PERMISSAO",
+                        details={"page": page, "username": username},
+                        created_by=changed_by
+                    )
+                except Exception:
+                    pass
+                return jsonify(success=True, message="Permissão concedida com sucesso")
+            else:
+                return jsonify(success=True, message="Esse usuário já tinha permissão nessa página")
+
+        elif action == 'REMOVE':
+            changed = revoke_permission(page, username)
+
+            if changed:
+                log_permission_audit(page, username, 'REMOVIDO', changed_by)
+                try:
+                    audit_log(
+                        entity_type="PERMISSAO",
+                        entity_id=None,
+                        action="REMOVER_PERMISSAO",
+                        details={"page": page, "username": username},
+                        created_by=changed_by
+                    )
+                except Exception:
+                    pass
+                return jsonify(success=True, message="Permissão removida com sucesso")
+            else:
+                return jsonify(success=True, message="Esse usuário já não tinha permissão nessa página")
+
+    except Exception as e:
+        return jsonify(success=False, message=str(e)), 500
+
+    
+@app.route('/permissions/page/action', methods=['POST'])
+def permission_page_action():
+    if 'user' not in session or session['user']['is_admin'] != 1:
+        return jsonify(success=False, message="Sem permissão")
+
+    data = request.json
+    page = data['page']
+    username = data['username']
+    action = data['action']
+    admin = session['user']['username']
+
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+
+    if action == 'GRANT':
+        cur.execute("""
+            INSERT INTO page_permissions (page, username)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        """, (page, username))
+
+        cur.execute("""
+            INSERT INTO permissions_audit
+            (page, username, action, changed_by)
+            VALUES (%s, %s, 'CONCEDIDO', %s)
+        """, (page, username, admin))
+
     else:
-        # GET: renderiza a página normalmente
-        # Lista completa de todas as páginas do sistema que podem ter permissões
-        pages = [
-            'home',
-            'search',
-            'inserir_dados',
-            'dashboard_divisao',
-            'pesquisar_divisao',
-            'editar_registro',
-            'upload',
-            'editar',
-            'insights',
-            'permissions'
-        ]
-        # Dicionário com nomes amigáveis para exibição nas abas
-        page_labels = {
-            'home': 'Home',
-            'search': 'Pesquisa Docjud',
-            'inserir_dados': 'Inserir Dados',
-            'dashboard_divisao': 'Dashboard Divisão',
-            'pesquisar_divisao': 'Pesquisar Divisão',
-            'editar_registro': 'Editar Registro',
-            #'upload': 'Upload',
-            'editar': 'Editar',
-            #'insights': 'Insights',
-            'permissions': 'Permissões'
-        }
-        
-        all_usernames = get_all_usernames()  # Função que retorna todos os usernames possíveis
-        page_permissions = load_page_permissions()  # Função que carrega permissões atuais
-        return render_template('permissions.html', pages=pages, page_labels=page_labels, all_usernames=all_usernames, page_permissions=page_permissions)
+        cur.execute("""
+            DELETE FROM page_permissions
+            WHERE page = %s AND username = %s
+        """, (page, username))
+
+        cur.execute("""
+            INSERT INTO permissions_audit
+            (page, username, action, changed_by)
+            VALUES (%s, %s, 'REMOVIDO', %s)
+        """, (page, username, admin))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return jsonify(success=True, message="Permissão de página atualizada")
+
+
 
 # -------------------
 # Menu dinâmico
@@ -1086,12 +2150,18 @@ def inject_user_menu():
         page_labels = {
             'home': 'Home',
             #'upload': 'Upload',
-            'search': 'Pesquisa Docjud',        
-            #'insights': 'Dashboard',     
+            #'search': 'Pesquisa Docjud',        
+            'dashboard_bi': 'Dashboard',
+            'pesquisar_divisao': 'Pesquisar Divisão',      
             'permissions': 'Permissões',
-            'inserir_dados': 'Inserir Dados'
+            'insights': 'teste insights',
+            #'inserir_dados': 'Inserir registros antigo'
+            'permissions_audit': 'Auditoria',
+            'audit': 'Log de Auditoria',
+            'verificar_codigo': 'Inserir registro'
+            
         }
-        pages = ['home', 'search', 'permissions', 'inserir_dados']
+        pages = ['home', 'pesquisar_divisao', 'verificar_codigo', 'dashboard_bi', 'insights', 'permissions', 'audit', 'permissions_audit'] #ordem das páginas no menu (peginas retirada#, 'inserir_dados', 'search',
         menu = []
         for page in pages:
             if page == 'permissions' and session['user']['is_admin'] != 1:
@@ -1123,7 +2193,6 @@ def search():
     page = int(request.args.get('page', 1))
     per_page = 20
     offset = (page - 1) * per_page
-    
 
     cod_ficha = request.args.get('cod_ficha', '')
     nl_numero = request.args.get('nl_numero', '')
@@ -1154,8 +2223,9 @@ def search():
     paginated_sql = f"""
         SELECT * FROM (
             SELECT ROW_NUMBER() OVER (ORDER BY COD_FICHA) AS row_num,
-                   COD_FICHA, DT_CADASTRO, TITULO, SOBRENOME, PRENOME, RESP_ID, PRENOME2, RESP2_ID, ASSUNTO, ANO, ANOF,
-                   NL_NUMERO, NL_APELACAO, NL_CAIXA, NL_GAL, OBS, PROCEDENCIA_ID, SERIE_ID,
+                   COD_FICHA, DT_CADASTRO, TITULO, SOBRENOME, PRENOME, RESP_ID, PRENOME2, RESP2_ID,
+                   ASSUNTO, ANO, ANOF, NL_NUMERO, NL_APELACAO, NL_CAIXA, NL_GAL, OBS,
+                   PROCEDENCIA_ID, SERIE_ID,
                    T_CodReferenciaSIAN_ID, T_codRefPaiSIAN_ID, CodigoReferenciaPaiSIAN
             FROM tblFicha2
             {where_sql}
@@ -1164,30 +2234,63 @@ def search():
     """
     params.extend([offset, offset + per_page])
     cursor.execute(paginated_sql, params)
+
     columns = [column[0] for column in cursor.description]
     results = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    # Count total para paginação
+    # Total para paginação
     count_sql = f"SELECT COUNT(*) FROM tblFicha2 {where_sql}"
     cursor.execute(count_sql, params[:-2])
     total = cursor.fetchone()[0]
+
     has_next = (offset + per_page) < total
-    total_pages = (total + per_page - 1) // per_page  # arredonda pra cima
+    total_pages = (total + per_page - 1) // per_page
 
     cursor.close()
     conn.close()
 
-    # Conta os "não localizados"
+    # ===== CARDS (somente tela inicial) =====
+    total_registros = 0
     count_nao_localizado = 0
-    if not where_clauses:  # só na tela inicial
+    percentual_nao_localizado = 0
+
+    if not where_clauses:
         conn = get_sqlserver_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM tblFicha2 WHERE OBS LIKE '%não localizado%' OR OBS LIKE '%Produtos não localizado%'")
+
+        # Total geral
+        cursor.execute("SELECT COUNT(*) FROM tblFicha2")
+        total_registros = cursor.fetchone()[0]
+
+        # Não localizados
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM tblFicha2 
+            WHERE OBS LIKE '%não localizado%'
+               OR OBS LIKE '%Produtos não localizado%'
+        """)
         count_nao_localizado = cursor.fetchone()[0]
+
+        # Percentual
+        if total_registros > 0:
+            percentual_nao_localizado = round(
+                (count_nao_localizado / total_registros) * 100, 2
+            )
+
         cursor.close()
         conn.close()
 
-    return render_template('search.html', results=results, page=page, has_next=has_next, total_pages=total_pages, count_nao_localizado=count_nao_localizado)
+    return render_template(
+        'search.html',
+        results=results,
+        page=page,
+        has_next=has_next,
+        total_pages=total_pages,
+        total_registros=total_registros,
+        count_nao_localizado=count_nao_localizado,
+        percentual_nao_localizado=percentual_nao_localizado
+    )
+
 
 
 @app.route('/search/export')
@@ -1264,7 +2367,125 @@ def export_search():
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
+@app.route('/dashboard-bi')
+def dashboard_bi():
+    return render_template('dashboard_BI.html')
 
+from flask import redirect, url_for, render_template, request, flash
+
+@app.route('/verificar_codigo', methods=['GET', 'POST'])
+def verificar_codigo():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    permission_check = require_permission('inserir_dados')
+    if permission_check:
+        return permission_check
+
+    codigo = None
+
+    if request.method == 'POST':
+        codigo = (request.form.get('codigo_referencia') or '').strip()
+
+        if not codigo:
+            flash("❌ Informe um Código de Referência.", "danger")
+            return redirect(url_for('verificar_codigo'))
+
+        conn = config.get_pg_connection()
+        cur = conn.cursor()
+        try:
+            # ✅ busca ignorando maiúsculas/minúsculas e espaços
+            cur.execute("""
+                SELECT id
+                FROM public.tabela_padrao
+                WHERE UPPER(TRIM(codigo_referencia)) = UPPER(TRIM(%s))
+                LIMIT 1
+            """, (codigo,))
+            row = cur.fetchone()
+
+        finally:
+            cur.close()
+            conn.close()
+
+        if row:
+            registro_id = row[0]
+            # ✅ redireciona para edição por ID (tela que carrega histórico de tentativas)
+            return redirect(url_for('editar_registro', id=registro_id))
+        else:
+            flash("ℹ️ Código não encontrado.", "warning")
+
+    return render_template('verificar_codigo.html', codigo=codigo)
+
+
+
+@app.route('/editar_registro_cod_ref/<codigo>', methods=['GET', 'POST'])
+def editar_registro_cod_ref(codigo):
+
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+
+    if request.method == 'POST':
+        cur.execute("""
+            UPDATE tabela_padrao SET
+                fundo_colecao=%s,
+                titulo_conteudo=%s,
+                notacao=%s,
+                localizacao_fisica=%s,
+                data_localizacao=%s,
+                observacoes=%s,
+                divisao=%s
+            WHERE codigo_referencia=%s
+        """, (
+            request.form['fundo_colecao'],
+            request.form['titulo_conteudo'],
+            request.form['notacao'],
+            request.form['localizacao_fisica'],
+            request.form['data_localizacao'] or None,
+            request.form['observacoes'],
+            request.form['divisao'],
+            codigo
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+        flash("✅ Registro atualizado com sucesso!", "success")
+        return redirect(url_for('home'))
+
+    cur.execute("""
+        SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia,
+               notacao, localizacao_fisica, data_registro,
+               data_localizacao, observacoes, divisao
+        FROM tabela_padrao
+        WHERE codigo_referencia=%s
+    """, (codigo,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        flash("Registro não encontrado.", "danger")
+        return redirect(url_for('verificar_codigo'))
+
+    registro = {
+        'id': row[0],
+        'fundo_colecao': row[1],
+        'titulo_conteudo': row[2],
+        'codigo_referencia': row[3],
+        'notacao': row[4],
+        'localizacao_fisica': row[5],
+        'data_registro': row[6],
+        'data_localizacao': row[7],
+        'observacoes': row[8],
+        'divisao': row[9],
+    }
+
+    return render_template(
+        'editar_registro.html',
+        registro=registro
+    )
 
 
 @app.route('/nao_localizado')
@@ -1298,6 +2519,205 @@ def nao_localizado():
         page=1,
         has_next=False,
         count_nao_localizado=len(results)
+    )
+@app.route("/insights")
+def insights_view():
+    return render_template(
+        "insights.html",
+        title="Insights - Cadê meu DOC"
+    )
+
+@app.route('/registro/<int:registro_id>/tentativa', methods=['POST'])
+def registrar_tentativa(registro_id):
+    if 'user' not in session:
+        return jsonify(success=False, message="Não autenticado")
+
+    # Permissão: quem edita pode registrar tentativa
+    permission_check = require_permission('editar_registro')
+    if permission_check:
+        return jsonify(success=False, message="Sem permissão")
+
+    data = request.get_json(silent=True) or {}
+    status = (data.get('status') or 'PROCURANDO').strip().upper()
+    observacao = (data.get('observacao') or '').strip()
+    criado_por = session['user']['username']
+
+    if status not in ('PROCURANDO', 'NAO_ENCONTRADO', 'ENCONTRADO'):
+        return jsonify(success=False, message="Status inválido.")
+
+    try:
+        conn = config.get_pg_connection()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT current_database(), current_schema(), inet_server_addr(), inet_server_port();")
+        print("DEBUG POST tentativa ->", cur.fetchone())
+
+
+        # ✅ grava tentativa no registro certo
+        cur.execute("""
+            INSERT INTO documento_tentativas (registro_id, status, observacao, criado_por, criado_em)
+            VALUES (%s, %s, %s, %s, NOW())
+        """, (registro_id, status, observacao, criado_por))
+
+        # ✅ se encontrou, marca o registro como localizado (opcional, mas faz sentido)
+        if status == 'ENCONTRADO':
+            cur.execute("""
+                UPDATE tabela_padrao
+                SET localizado = TRUE,
+                    alterado_em = NOW(),
+                    alterado_por = %s
+                WHERE id = %s
+            """, (criado_por, registro_id))
+            cur.execute("SELECT COUNT(*) FROM public.documento_tentativas WHERE registro_id=%s", (registro_id,))
+            print("DEBUG POST tentativa count (mesma conn) ->", cur.fetchone()[0])
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # auditoria (não quebra o fluxo)
+        try:
+            audit_log(
+                entity_type="TENTATIVA",
+                entity_id=registro_id,
+                action="REGISTRAR_TENTATIVA",
+                details={"status": status, "observacao": observacao},
+                created_by=criado_por
+            )
+        except Exception:
+            pass
+
+        return jsonify(success=True, message="✅ Tentativa registrada com sucesso!")
+
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify(success=False, message=f"Erro ao registrar tentativa: {e}")
+
+
+
+
+@app.route('/audit', methods=['GET'])
+def audit():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    # ✅ somente admin
+    if session['user'].get('is_admin') != 1:
+        return redirect(url_for('sem_permissao'))
+
+    # filtros (query string)
+    q = (request.args.get('q') or '').strip()  # busca livre (usuario, acao, entidade)
+    entity_type = (request.args.get('entity_type') or '').strip().upper()
+    action = (request.args.get('action') or '').strip().upper()
+    created_by = (request.args.get('created_by') or '').strip()
+    date_from = (request.args.get('date_from') or '').strip()  # YYYY-MM-DD
+    date_to = (request.args.get('date_to') or '').strip()      # YYYY-MM-DD
+
+    # paginação
+    per_page = 25
+    page = request.args.get('page', 1, type=int)
+    if page < 1:
+        page = 1
+    offset = (page - 1) * per_page
+
+    where = []
+    params = []
+
+    if entity_type:
+        where.append("entity_type = %s")
+        params.append(entity_type)
+
+    if action:
+        where.append("action = %s")
+        params.append(action)
+
+    if created_by:
+        where.append("created_by ILIKE %s")
+        params.append(f"%{created_by}%")
+
+    # datas inclusivas (from 00:00, to 23:59:59)
+    if date_from:
+        where.append("created_at >= %s::date")
+        params.append(date_from)
+
+    if date_to:
+        where.append("created_at < (%s::date + interval '1 day')")
+        params.append(date_to)
+
+    # busca livre: procura em created_by, action, entity_type e details::text
+    if q:
+        where.append("""
+            (
+                created_by ILIKE %s OR
+                action ILIKE %s OR
+                entity_type ILIKE %s OR
+                details::text ILIKE %s
+            )
+        """)
+        params.extend([f"%{q}%"] * 4)
+
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+    conn = get_postgres_connection()
+    cur = conn.cursor()
+
+    # total para paginação
+    cur.execute(f"SELECT COUNT(*) FROM system_audit {where_sql}", params)
+    total = cur.fetchone()[0]
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    # dados da página
+    cur.execute(f"""
+        SELECT id, created_at, created_by, entity_type, entity_id, action, details
+        FROM system_audit
+        {where_sql}
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    """, params + [per_page, offset])
+
+    rows = cur.fetchall()
+
+    # opções para dropdowns (distintos)
+    cur.execute("SELECT DISTINCT entity_type FROM system_audit ORDER BY entity_type")
+    entity_types = [r[0] for r in cur.fetchall()]
+
+    cur.execute("SELECT DISTINCT action FROM system_audit ORDER BY action")
+    actions = [r[0] for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    # normaliza detalhes (já vem dict se psycopg2 estiver configurado; senão, vem string/json)
+    audits = []
+    for r in rows:
+        audits.append({
+            "id": r[0],
+            "created_at": r[1],
+            "created_by": r[2],
+            "entity_type": r[3],
+            "entity_id": r[4],
+            "action": r[5],
+            "details": r[6]
+        })
+
+    return render_template(
+        "audit.html",
+        audits=audits,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        per_page=per_page,
+        q=q,
+        entity_type=entity_type,
+        action=action,
+        created_by=created_by,
+        date_from=date_from,
+        date_to=date_to,
+        entity_types=entity_types,
+        actions=actions
     )
 
 # -------------------

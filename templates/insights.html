@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid">
+
+    <!-- TÍTULO -->
+    <div class="mb-4">
+        <h3 class="fw-bold text-primary"> Análise de Registros – SIAN</h3>
+        <p class="text-muted">
+            Análise consolidada dos registros do sistema <strong>Cadê meu DOC</strong>.
+        </p>
+    </div>
+
+    <!-- KPI PRINCIPAL -->
+    <div class="row g-4 mb-4">
+
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0">
+                <div class="card-body">
+                    <small class="text-muted">Total de Registros (SIAN)</small>
+                    <h4 class="fw-bold">3.767.321</h4>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0">
+                <div class="card-body">
+                    <small class="text-muted">Total Não Localizados</small>
+                    <h4 class="fw-bold text-danger">3.353</h4>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 bg-light">
+                <div class="card-body">
+                    <small class="text-muted">
+                        Percentual total de registros não localizados
+                    </small>
+                    <h2 class="fw-bold text-danger mb-0">0,089%</h2>
+                    <small class="text-muted">
+                        Percentual calculado sobre o total geral de registros do SIAN
+                    </small>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- KPIs SECUNDÁRIOS -->
+    <div class="row g-4 mb-4">
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0">
+                <div class="card-body">
+                    <small class="text-muted">Publicados</small>
+                    <h4 class="fw-bold text-success">3.443.692</h4>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0">
+                <div class="card-body">
+                    <small class="text-muted">Não Publicados</small>
+                    <h4 class="fw-bold text-warning">323.629</h4>
+                    <small class="text-muted">8,59% do total</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0">
+                <div class="card-body">
+                    <small class="text-muted">Total DOCJUD</small>
+                    <h4 class="fw-bold">1.449.737</h4>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- GRÁFICOS -->
+    <div class="row g-4 mb-4">
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3">Publicados x Não Publicados</h6>
+                    <canvas id="publicadosChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <h6 class="fw-semibold mb-3">Não Localizados (por divisão)</h6>
+                    <canvas id="naoLocalizadosChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- DOCJUD -->
+    <div class="row g-4 mb-4">
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <h6 class="fw-semibold text-primary">📂 DOCJUD</h6>
+                    <p class="mb-1">Total de registros DOCJUD</p>
+                    <h4 class="fw-bold">1.449.737</h4>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <h6 class="fw-semibold text-danger"> Não Localizados</h6>
+                    <h4 class="fw-bold">3.353</h4>
+                    <p class="mb-1">
+                        <strong class="fs-4 text-danger">0,23%</strong><br>
+                        <small class="text-muted">
+                            percentual dentro do universo DOCJUD
+                        </small>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- TABELA -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-3">
+                Distribuição dos Registros Não Localizados
+            </h6>
+
+            <p class="text-muted mb-2">
+                O total de <strong>1.654 registros</strong> corresponde à soma das divisões
+                <strong>DIJUD, DIPEX e DIPOP</strong>.
+            </p>
+
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Divisão</th>
+                            <th>Quantidade</th>
+                            <th>% dentro dos não localizados</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>DIJUD</td>
+                            <td>1.124</td>
+                            <td>33,5%</td>
+                        </tr>
+                        <tr>
+                            <td>DIPEX</td>
+                            <td>508</td>
+                            <td>15,1%</td>
+                        </tr>
+                        <tr>
+                            <td>DIPOP</td>
+                            <td>22</td>
+                            <td>0,7%</td>
+                        </tr>
+                        <tr class="table-secondary">
+                            <td><strong>Total (DIJUD + DIPEX + DIPOP)</strong></td>
+                            <td><strong>1.654</strong></td>
+                            <td><strong>49,3%</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- INSIGHTS -->
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <h6 class="fw-semibold mb-3"> Principais Insights</h6>
+            <ul class="mb-0">
+                <li>
+                    Os registros não localizados representam
+                    <strong>0,089%</strong> do total geral de registros do SIAN.
+                </li>
+                <li>
+                    Do total de não localizados, <strong>49,3%</strong> concentram-se nas
+                    divisões <strong>DIJUD, DIPEX e DIPOP</strong>.
+                </li>
+                <li>
+                    O DOCJUD apresenta <strong>0,23%</strong> de registros não localizados
+                    em relação ao seu universo total.
+                </li>
+                <li>
+                    O volume identificado não indica impacto relevante sobre o acervo geral.
+                </li>
+            </ul>
+        </div>
+    </div>
+
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+new Chart(document.getElementById('publicadosChart'), {
+    type: 'doughnut',
+    data: {
+        labels: ['Publicados', 'Não Publicados'],
+        datasets: [{
+            data: [3443692, 323629],
+            backgroundColor: ['#1351B4', '#FFD600']
+        }]
+    },
+    options: { plugins: { legend: { position: 'bottom' } } }
+});
+
+new Chart(document.getElementById('naoLocalizadosChart'), {
+    type: 'bar',
+    data: {
+        labels: ['DIJUD', 'DIPEX', 'DIPOP'],
+        datasets: [{
+            data: [1124, 508, 22],
+            backgroundColor: '#5F97F1'
+        }]
+    },
+    options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+    }
+});
+</script>
+
+{% endblock %}
