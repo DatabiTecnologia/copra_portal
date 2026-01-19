@@ -24,7 +24,14 @@
       <div class="row">
         <div class="col-md-4">
           <label class="form-label fw-semibold">Código de Referência</label>
-          <input type="text" name="codigo_referencia" class="form-control" placeholder="Ex: 12345">
+          <input
+            type="text"
+            name="codigo_referencia"
+            class="form-control"
+            placeholder="Ex: 12345"
+            value="{{ codigo_prefill or '' }}"
+          >
+
         </div>
 
         <div class="col-md-4">

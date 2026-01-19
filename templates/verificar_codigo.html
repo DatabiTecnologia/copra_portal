@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base.html" %} 
 {% block title %}Verificar Código{% endblock %}
 
 {% block content %}
@@ -26,11 +26,77 @@
         </div>
 
         <div class="col-md-4">
-          <button type="submit" class="btn btn-success w-100">
+          <button type="submit" class="btn btn-success w-90">
             🔍 Buscar
           </button>
         </div>
       </form>
+
+      <hr class="my-4">
+
+      <!-- ✅ Resultado da busca -->
+      {% if registro %}
+        <div class="alert alert-success d-flex justify-content-between align-items-center">
+          <div>
+            ✅ Código encontrado: <strong>{{ registro.codigo_referencia }}</strong>
+          </div>
+
+          <a href="{{ url_for('editar_registro', id=registro.id) }}" class="btn btn-outline-warning btn-sm">
+            ✏️ Editar registro
+          </a>
+        </div>
+
+        <!-- (Opcional) resumo do registro encontrado -->
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle mb-0">
+            <tbody>
+              <tr>
+                <th style="width: 220px;">ID</th>
+                <td>{{ registro.id }}</td>
+              </tr>
+              <tr>
+                <th>Título / Conteúdo</th>
+                <td>{{ registro.titulo_conteudo or '' }}</td>
+              </tr>
+              <tr>
+                <th>Divisão</th>
+                <td>{{ registro.divisao or '' }}</td>
+              </tr>
+              <tr>
+                <th>Localizado?</th>
+                <td>
+                  {% if registro.localizado %}
+                    <span class="badge bg-success">Encontrado</span>
+                  {% else %}
+                    <span class="badge bg-danger">Não encontrado</span>
+                  {% endif %}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      {% elif nao_encontrado and codigo %}
+        <div class="alert alert-warning d-flex justify-content-between align-items-center">
+          <div>
+            ❌ Código não encontrado: <strong>{{ codigo }}</strong>
+          </div>
+
+          <!-- ✅ botão novo: cria registro com o código já preenchido -->
+          <a class="btn btn-success btn-sm"
+             href="{{ url_for('inserir_dados') }}?codigo={{ codigo|urlencode }}">
+            ➕ Inserir novo registro
+          </a>
+        </div>
+
+        <div class="text-muted">
+          Dica: ao abrir a tela de inserção, o código já vai vir preenchido automaticamente.
+        </div>
+      {% else %}
+        <div class="alert alert-secondary mb-0">
+          Faça a busca para verificar se o código já existe.
+        </div>
+      {% endif %}
 
       <hr class="my-4">
 

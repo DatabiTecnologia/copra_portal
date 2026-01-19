@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Dashboard V2{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+
+  <!-- 🔹 Cabeçalho com botões à esquerda e logo à direita -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{{ url_for('dashboard_divisao') }}" class="btn btn-outline-primary">
+        Pesquisar por Divisão
+      </a>
+      <a href="{{ url_for('verificar_codigo') }}" class="btn btn-outline-primary">
+        Inserir registro
+      </a>
+      <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-outline-primary">
+        Editar registro
+      </a>
+
+      <!-- ✅ Link rápido para voltar na home antiga -->
+      <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
+        Home antiga
+      </a>
+    </div>
+
+    <img src="{{ url_for('static', filename='logo_empresa.png') }}" alt="Logo" style="height: 100px;">
+  </div>
+
+  <h1 class="mb-4 text-primary">Dashboard V2 - Localizados & Produtividade</h1>
+
+  <!-- 🔹 Cards principais (base localizado) -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Total de Registros</h5>
+          <h2 class="text-primary">{{ total_registros }}</h2>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Encontrados</h5>
+          <h2 class="text-success">{{ total_encontrados }}</h2>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">Não encontrados</h5>
+          <h2 class="text-danger">{{ total_nao_encontrados }}</h2>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3">
+      <div class="card text-center border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title text-secondary">% Não encontrados</h5>
+          <h2 class="text-warning">{{ percentual_nao_encontrados }}%</h2>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔹 Gráfico: Localizados vs Não localizados por mês (12 meses) -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h5 class="card-title">📈 Localizados vs Não localizados (por mês de inserção)</h5>
+      <canvas id="chartInsercaoMensal" height="80"></canvas>
+      <div class="form-text">
+        Base: <strong>tabela_padrao.localizado</strong> e agrupamento por <strong>inserido_em</strong>.
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔹 Gráficos lado a lado -->
+  <div class="row">
+
+    <!-- Tentativas por dia -->
+    <div class="col-md-6 mb-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <h5 class="card-title">🧾 Tentativas por dia (últimos 60 dias)</h5>
+          <canvas id="chartTentativasDia"></canvas>
+          <div class="form-text">
+            Total de tentativas vs tentativas com status <strong>ENCONTRADO</strong>.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ranking divisão -->
+    <div class="col-md-6 mb-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <h5 class="card-title">🏁 Ranking por Divisão (Top 10 - volume total)</h5>
+          <canvas id="chartRankingDivisao"></canvas>
+          <div class="form-text">
+            Barras empilhadas: encontrados + não encontrados.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 🔹 Tabela: Achados no mês -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h5 class="card-title">✅ Achados no mês (data_localizacao)</h5>
+
+      {% if achados_mes and achados_mes|length > 0 %}
+      <div class="table-responsive" style="max-height: 60vh; overflow-y: auto;">
+        <table class="table table-striped table-hover table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>ID</th>
+              <th>Código de Referência</th>
+              <th>Título / Conteúdo</th>
+              <th>Divisão</th>
+              <th>Data da Localização</th>
+              <th>Alterado por</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in achados_mes %}
+            <tr>
+              <td>
+                <a href="{{ url_for('editar_registro', id=r[0]) }}" class="text-decoration-none">
+                  {{ r[0] }}
+                </a>
+              </td>
+              <td>{{ r[1] or '' }}</td>
+              <td>{{ r[2] or '' }}</td>
+              <td>{{ r[3] or '' }}</td>
+              <td>{{ r[4] if r[4] else '' }}</td>
+              <td>{{ r[5] or '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="alert alert-secondary mb-0">
+          Nenhum documento encontrado no mês atual.
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // ✅ 1) Inserção mensal: 2 linhas
+  const ctxMes = document.getElementById('chartInsercaoMensal');
+  new Chart(ctxMes, {
+    type: 'line',
+    data: {
+      labels: {{ meses_insercao|tojson }},
+      datasets: [
+        {
+          label: 'Encontrados',
+          data: {{ encontrados_mes|tojson }},
+          borderColor: '#28a745',
+          tension: 0.3,
+          fill: false
+        },
+        {
+          label: 'Não encontrados',
+          data: {{ nao_encontrados_mes|tojson }},
+          borderColor: '#dc3545',
+          tension: 0.3,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero: true },
+        x: { ticks: { maxRotation: 0, minRotation: 0 } }
+      }
+    }
+  });
+
+  // ✅ 2) Tentativas por dia: 2 linhas
+  const ctxTent = document.getElementById('chartTentativasDia');
+  new Chart(ctxTent, {
+    type: 'line',
+    data: {
+      labels: {{ dias_tentativas|tojson }},
+      datasets: [
+        {
+          label: 'Tentativas (total)',
+          data: {{ tentativas_total_dia|tojson }},
+          borderColor: '#0d6efd',
+          tension: 0.3,
+          fill: false
+        },
+        {
+          label: 'Tentativas com ENCONTRADO',
+          data: {{ tentativas_encontrado_dia|tojson }},
+          borderColor: '#28a745',
+          tension: 0.3,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero: true },
+        x: { ticks: { maxRotation: 45, minRotation: 45 } }
+      }
+    }
+  });
+
+  // ✅ 3) Ranking por divisão: barras empilhadas
+  const ctxRank = document.getElementById('chartRankingDivisao');
+  new Chart(ctxRank, {
+    type: 'bar',
+    data: {
+      labels: {{ divisoes_rank|tojson }},
+      datasets: [
+        {
+          label: 'Encontrados',
+          data: {{ encontrados_div|tojson }},
+          backgroundColor: '#28a745'
+        },
+        {
+          label: 'Não encontrados',
+          data: {{ nao_encontrados_div|tojson }},
+          backgroundColor: '#dc3545'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, beginAtZero: true }
+      }
+    }
+  });
+</script>
+
+{% endblock %}

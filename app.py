@@ -21,6 +21,7 @@ from flask_login import LoginManager, login_required, login_user, logout_user, c
 from openpyxl import load_workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 import json
+import calendar
 
 
 app = Flask(__name__)
@@ -626,6 +627,180 @@ def home():
         ranking_divisoes=ranking_divisoes,
         qtd_nao_localizado_ranking=qtd_nao_localizado_ranking
     )
+
+@app.route('/home_v2')
+def home_v2():
+    # exige login
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    # Verifica se o usuário tem permissões (admin ou pelo menos uma permissão)
+    if not user_has_any_permission(session['user']['username']):
+        return redirect(url_for('sem_permissao'))
+
+    # =========================
+    # ✅ Variáveis do dashboard v2 (base localizado + tentativas)
+    # =========================
+    total_registros = 0
+    total_encontrados = 0
+    total_nao_encontrados = 0
+    percentual_nao_encontrados = 0.0
+
+    # Série mensal últimos 12 meses por inserido_em
+    meses_insercao = []
+    encontrados_mes = []
+    nao_encontrados_mes = []
+
+    # Tentativas por dia (últimos 60 dias)
+    dias_tentativas = []
+    tentativas_total_dia = []
+    tentativas_encontrado_dia = []
+
+    # Ranking por divisão (localizado)
+    divisoes_rank = []
+    encontrados_div = []
+    nao_encontrados_div = []
+
+    # Achados no mês atual (data_localizacao)
+    achados_mes = []  # lista de tuplas (id, codigo, titulo, divisao, data_localizacao, alterado_por)
+
+    conn = None
+    try:
+        conn = config.get_pg_connection()
+        cur = conn.cursor()
+
+        # Total geral
+        cur.execute("SELECT COUNT(*) FROM tabela_padrao;")
+        total_registros = cur.fetchone()[0] or 0
+
+        # Cards: encontrados vs não encontrados (NULL conta como não encontrado)
+        cur.execute("""
+            SELECT
+              COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = TRUE)  AS encontrados,
+              COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = FALSE) AS nao_encontrados
+            FROM tabela_padrao;
+        """)
+        row = cur.fetchone()
+        total_encontrados = row[0] or 0
+        total_nao_encontrados = row[1] or 0
+        percentual_nao_encontrados = round((total_nao_encontrados / total_registros * 100), 2) if total_registros else 0.0
+
+        # Série mensal últimos 12 meses por inserido_em
+        cur.execute("""
+            WITH m AS (
+                SELECT date_trunc('month', CURRENT_DATE) - (interval '1 month' * gs) AS mes
+                FROM generate_series(0, 11) gs
+            )
+            SELECT
+              m.mes::date AS mes,
+              COALESCE(COUNT(tp.*) FILTER (WHERE COALESCE(tp.localizado, FALSE) = TRUE), 0)  AS encontrados,
+              COALESCE(COUNT(tp.*) FILTER (WHERE COALESCE(tp.localizado, FALSE) = FALSE), 0) AS nao_encontrados
+            FROM m
+            LEFT JOIN tabela_padrao tp
+              ON date_trunc('month', tp.inserido_em) = m.mes
+            GROUP BY 1
+            ORDER BY 1;
+        """)
+        serie = cur.fetchall()
+        meses_insercao = [s[0].strftime("%m/%Y") for s in serie]
+        encontrados_mes = [int(s[1]) for s in serie]
+        nao_encontrados_mes = [int(s[2]) for s in serie]
+
+        # Tentativas por dia (últimos 60 dias)
+        cur.execute("""
+            WITH d AS (
+                SELECT (CURRENT_DATE - gs)::date AS dia
+                FROM generate_series(0, 59) gs
+            )
+            SELECT
+              d.dia,
+              COALESCE(COUNT(dt.*), 0) AS tentativas_total,
+              COALESCE(COUNT(dt.*) FILTER (WHERE dt.status = 'ENCONTRADO'), 0) AS tentativas_encontrado
+            FROM d
+            LEFT JOIN documento_tentativas dt
+              ON DATE(dt.criado_em) = d.dia
+            GROUP BY 1
+            ORDER BY 1;
+        """)
+        serie_t = cur.fetchall()
+        dias_tentativas = [s[0].strftime("%d/%m") for s in serie_t]
+        tentativas_total_dia = [int(s[1]) for s in serie_t]
+        tentativas_encontrado_dia = [int(s[2]) for s in serie_t]
+
+        # Ranking por divisão (localizado) - Top 10 por volume total
+        cur.execute("""
+            SELECT
+              UPPER(TRIM(divisao)) AS divisao,
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = TRUE) AS encontrados,
+              COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = FALSE) AS nao_encontrados
+            FROM tabela_padrao
+            WHERE divisao IS NOT NULL AND TRIM(divisao) <> ''
+            GROUP BY 1
+            ORDER BY total DESC
+            LIMIT 10;
+        """)
+        rdiv = cur.fetchall()
+        divisoes_rank = [r[0] for r in rdiv]
+        encontrados_div = [int(r[2]) for r in rdiv]
+        nao_encontrados_div = [int(r[3]) for r in rdiv]
+
+        # Achados no mês atual (data_localizacao)
+        mes_inicio = date.today().replace(day=1)
+        last_day = calendar.monthrange(mes_inicio.year, mes_inicio.month)[1]
+        mes_fim = date(mes_inicio.year, mes_inicio.month, last_day)
+
+        cur.execute("""
+            SELECT
+              id,
+              codigo_referencia,
+              titulo_conteudo,
+              UPPER(TRIM(divisao)) AS divisao,
+              data_localizacao,
+              alterado_por
+            FROM tabela_padrao
+            WHERE COALESCE(localizado, FALSE) = TRUE
+              AND data_localizacao BETWEEN %s AND %s
+            ORDER BY data_localizacao DESC, id DESC
+            LIMIT 200;
+        """, (mes_inicio, mes_fim))
+        achados_mes = cur.fetchall()
+
+        cur.close()
+        conn.close()
+        conn = None
+
+    except Exception as e:
+        try:
+            if conn:
+                conn.rollback()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+        print(f"[ERRO] rota /home_v2: {e}")
+
+    return render_template(
+        'home_v2.html',
+        total_registros=total_registros,
+        total_encontrados=total_encontrados,
+        total_nao_encontrados=total_nao_encontrados,
+        percentual_nao_encontrados=percentual_nao_encontrados,
+        meses_insercao=meses_insercao,
+        encontrados_mes=encontrados_mes,
+        nao_encontrados_mes=nao_encontrados_mes,
+        dias_tentativas=dias_tentativas,
+        tentativas_total_dia=tentativas_total_dia,
+        tentativas_encontrado_dia=tentativas_encontrado_dia,
+        divisoes_rank=divisoes_rank,
+        encontrados_div=encontrados_div,
+        nao_encontrados_div=nao_encontrados_div,
+        achados_mes=achados_mes
+    )
+
 @app.route('/dashboard_divisao', methods=['GET', 'POST'])
 def dashboard_divisao():
     if 'user' not in session:
@@ -1125,7 +1300,19 @@ def inserir_dados():
         return redirect(url_for('inserir_dados'))
 
     # GET
-    return render_template('inserir_dados.html', modo=modo)
+    # GET
+    codigo_prefill = (request.args.get('codigo') or '').strip()
+
+    # se quiser, já manda uppercase pra padronizar visualmente
+    if codigo_prefill:
+        codigo_prefill = codigo_prefill.upper()
+
+    return render_template(
+        'inserir_dados.html',
+        modo=modo,
+        codigo_prefill=codigo_prefill
+    )
+
 
 
 
@@ -2382,7 +2569,9 @@ def verificar_codigo():
     if permission_check:
         return permission_check
 
+    registro = None
     codigo = None
+    nao_encontrado = False
 
     if request.method == 'POST':
         codigo = (request.form.get('codigo_referencia') or '').strip()
@@ -2391,30 +2580,46 @@ def verificar_codigo():
             flash("❌ Informe um Código de Referência.", "danger")
             return redirect(url_for('verificar_codigo'))
 
+        # padroniza busca para evitar problema de maiúscula/minúscula
+        codigo_busca = codigo.upper()
+
         conn = config.get_pg_connection()
         cur = conn.cursor()
-        try:
-            # ✅ busca ignorando maiúsculas/minúsculas e espaços
-            cur.execute("""
-                SELECT id
-                FROM public.tabela_padrao
-                WHERE UPPER(TRIM(codigo_referencia)) = UPPER(TRIM(%s))
-                LIMIT 1
-            """, (codigo,))
-            row = cur.fetchone()
-
-        finally:
-            cur.close()
-            conn.close()
+        cur.execute("""
+            SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia,
+                   notacao, localizacao_fisica, data_registro,
+                   data_localizacao, observacoes, divisao, localizado
+            FROM tabela_padrao
+            WHERE UPPER(TRIM(codigo_referencia)) = %s
+        """, (codigo_busca,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
 
         if row:
-            registro_id = row[0]
-            # ✅ redireciona para edição por ID (tela que carrega histórico de tentativas)
-            return redirect(url_for('editar_registro', id=registro_id))
+            registro = {
+                'id': row[0],
+                'fundo_colecao': row[1],
+                'titulo_conteudo': row[2],
+                'codigo_referencia': row[3],
+                'notacao': row[4],
+                'localizacao_fisica': row[5],
+                'data_registro': row[6],
+                'data_localizacao': row[7],
+                'observacoes': row[8],
+                'divisao': row[9],
+                'localizado': row[10],
+            }
         else:
-            flash("ℹ️ Código não encontrado.", "warning")
+            nao_encontrado = True
+            flash("ℹ️ Código não encontrado. Você pode inserir um novo registro com esse código.", "warning")
 
-    return render_template('verificar_codigo.html', codigo=codigo)
+    return render_template(
+        'verificar_codigo.html',
+        registro=registro,
+        codigo=codigo,
+        nao_encontrado=nao_encontrado
+    )
 
 
 
