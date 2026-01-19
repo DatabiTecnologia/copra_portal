@@ -8,7 +8,7 @@ PG_CONFIG = {
     'host': "192.168.0.43",
     'port': 5432,
     'database': "copra",
-    'user': ""
+    'user': "",
     'password': ""
 }
 def get_pg_connection():
