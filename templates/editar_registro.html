@@ -104,7 +104,7 @@
             <tbody>
               {% for t in tentativas %}
               <tr>
-                <td>{{ t[3] }}</td>
+                <td>{{ t[3] | br_datetime }}</td>
                 <td>
                   {% if t[0] == 'ENCONTRADO' %}
                     <span class="badge bg-success">Encontrado</span>

@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow-sm p-4">
+    <h2 class="mb-3 text-primary">📊 Dashboard por Divisão (v2)</h2>
+
+    <form method="POST" class="row g-3 align-items-end mb-3">
+      <div class="col-md-6">
+        <label class="form-label">Selecione a divisão:</label>
+        <select name="divisao" class="form-select" required>
+          <option value="">-- Escolha --</option>
+          {% for d in divisoes %}
+            <option value="{{ d }}" {% if d == divisao_selecionada %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100">Carregar</button>
+      </div>
+    </form>
+
+    {% if mensagem %}
+      <div class="alert alert-warning">{{ mensagem }}</div>
+    {% endif %}
+
+    {% if divisao_selecionada %}
+      <hr>
+      <h5 class="text-secondary mb-3">Divisão: <b>{{ divisao_selecionada }}</b></h5>
+
+      <!-- Cards -->
+      <div class="row g-3 mb-4">
+        <div class="col-md-3">
+          <div class="card text-center border-0 shadow-sm">
+            <div class="card-body">
+              <div class="text-muted">Total</div>
+              <h3>{{ cards.total_registros }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card text-center border-0 shadow-sm">
+            <div class="card-body">
+              <div class="text-muted">Localizados</div>
+              <h3 class="text-success">{{ cards.total_localizados }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card text-center border-0 shadow-sm">
+            <div class="card-body">
+              <div class="text-muted">Não localizados</div>
+              <h3 class="text-danger">{{ cards.total_nao_localizados }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card text-center border-0 shadow-sm">
+            <div class="card-body">
+              <div class="text-muted">% Não localizado</div>
+              <h3 class="text-warning">{{ cards.percent_nao_localizados }}%</h3>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfico 1: inserido_em -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h5 class="card-title">📌 Localizados vs Não localizados (por inserção - últimos 12 meses)</h5>
+          <canvas id="chartInserido" height="90"></canvas>
+        </div>
+      </div>
+
+      <!-- Gráfico 2: tentativas -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h5 class="card-title">🧾 Tentativas por dia (total vs encontrados - últimos 12 meses)</h5>
+          <canvas id="chartTentativas" height="90"></canvas>
+        </div>
+      </div>
+
+      <!-- Gráfico 3: achados -->
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h5 class="card-title">✅ Achados por data da localização (últimos 12 meses)</h5>
+          <canvas id="chartAchados" height="90"></canvas>
+        </div>
+      </div>
+
+      <!-- Tabela achados -->
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title">📋 Itens achados (últimos 12 meses)</h5>
+
+          <div class="table-responsive" style="max-height: 65vh; overflow:auto;">
+            <table class="table table-sm table-striped table-bordered align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>ID</th>
+                  <th>Código</th>
+                  <th>Título</th>
+                  <th>Notação</th>
+                  <th>Localização</th>
+                  <th>Data Documento</th>
+                  <th>Data Localização</th>
+                  <th>Divisão</th>
+                  <th>Inserido por</th>
+                  <th>Inserido em</th>
+                  <th>Alterado por</th>
+                  <th>Alterado em</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in achados_mes %}
+                  <tr>
+                    <td><a href="{{ url_for('editar_registro', id=r[0]) }}">{{ r[0] }}</a></td>
+                    <td>{{ r[3] or '' }}</td>
+                    <td>{{ r[2] or '' }}</td>
+                    <td>{{ r[4] or '' }}</td>
+                    <td>{{ r[5] or '' }}</td>
+                    <td>{{ r[6] or '' }}</td>
+                    <td>{{ r[7] or '' }}</td>
+                    <td>{{ r[9] or '' }}</td>
+                    <td>{{ r[11] or '' }}</td>
+                    <td>{{ r[12] or '' }}</td>
+                    <td>{{ r[13] or '' }}</td>
+                    <td>{{ r[14] or '' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          {% if not achados_mes or achados_mes|length == 0 %}
+            <div class="alert alert-secondary mb-0">Nenhum item localizado no período.</div>
+          {% endif %}
+        </div>
+      </div>
+
+    {% endif %}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // 1) Inserido_em
+  const ctx1 = document.getElementById('chartInserido');
+  if (ctx1) {
+    new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels: {{ labels_inserido|tojson }},
+        datasets: [
+          { label: 'Localizados', data: {{ serie_localizados_inserido|tojson }}, tension: 0.25 },
+          { label: 'Não localizados', data: {{ serie_nao_localizados_inserido|tojson }}, tension: 0.25 }
+        ]
+      },
+      options: { scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // 2) Tentativas
+  const ctx2 = document.getElementById('chartTentativas');
+  if (ctx2) {
+    new Chart(ctx2, {
+      type: 'line',
+      data: {
+        labels: {{ labels_tentativas|tojson }},
+        datasets: [
+          { label: 'Tentativas (total)', data: {{ serie_tentativas_total|tojson }}, tension: 0.25 },
+          { label: 'Encontrados (tentativas)', data: {{ serie_tentativas_encontrado|tojson }}, tension: 0.25 }
+        ]
+      },
+      options: { scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // 3) Achados por data_localizacao
+  const ctx3 = document.getElementById('chartAchados');
+  if (ctx3) {
+    new Chart(ctx3, {
+      type: 'line',
+      data: {
+        labels: {{ labels_achados|tojson }},
+        datasets: [
+          { label: 'Achados', data: {{ serie_achados|tojson }}, tension: 0.25 }
+        ]
+      },
+      options: { scales: { y: { beginAtZero: true } } }
+    });
+  }
+</script>
+{% endblock %}

@@ -627,6 +627,45 @@ def home():
         ranking_divisoes=ranking_divisoes,
         qtd_nao_localizado_ranking=qtd_nao_localizado_ranking
     )
+@app.template_filter("br_date")
+def br_date(value):
+    if not value:
+        return ""
+    # se vier string, tenta converter
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                value = datetime.strptime(value, fmt).date()
+                break
+            except ValueError:
+                continue
+        else:
+            return value  # não conseguiu converter, devolve como veio
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%Y")
+    return str(value)
+
+@app.template_filter("br_datetime")
+def br_datetime(value):
+    if not value:
+        return ""
+    # se vier string, tenta converter
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y %H:%M"):
+            try:
+                value = datetime.strptime(value, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return value
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y %H:%M")
+    return str(value)
 
 @app.route('/home_v2')
 def home_v2():
@@ -873,6 +912,211 @@ def dashboard_divisao():
         mensagem=mensagem
     )
 
+@app.route('/dashboard_divisao_v2', methods=['GET', 'POST'])
+def dashboard_divisao_v2():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    # 🔐 Permissão
+    permission_check = require_permission('dashboard_divisao')
+    if permission_check:
+        return permission_check
+
+    conn = None
+    mensagem = None
+    divisao_selecionada = None
+
+    username = session['user']['username']
+    is_admin = session['user']['is_admin']
+
+    # =========================
+    # Defaults (não quebrar template)
+    # =========================
+    divisoes = []
+    cards = {
+        "total_registros": 0,
+        "total_localizados": 0,
+        "total_nao_localizados": 0,
+        "percent_nao_localizados": 0
+    }
+
+    # Gráficos
+    labels_inserido = []
+    serie_localizados_inserido = []
+    serie_nao_localizados_inserido = []
+
+    labels_tentativas = []
+    serie_tentativas_total = []
+    serie_tentativas_encontrado = []
+
+    labels_achados = []
+    serie_achados = []
+
+    # Tabela: achados do período
+    achados_mes = []
+
+    try:
+        conn = config.get_pg_connection()
+        cur = conn.cursor()
+
+        # 🔹 Divisões permitidas
+        divisoes = get_divisoes_permitidas(username, is_admin)
+
+        # Seleção (POST ou GET por querystring opcional)
+        if request.method == 'POST':
+            divisao_selecionada = request.form.get('divisao')
+        else:
+            divisao_selecionada = request.args.get('divisao')
+
+        if divisao_selecionada:
+            # 🔒 Bloqueia divisão não permitida
+            if divisao_selecionada not in divisoes:
+                mensagem = "❌ Você não tem permissão para acessar esta divisão."
+                return render_template(
+                    'dashboard_divisao_v2.html',
+                    divisoes=divisoes,
+                    divisao_selecionada=None,
+                    mensagem=mensagem,
+                    cards=cards,
+                    labels_inserido=[],
+                    serie_localizados_inserido=[],
+                    serie_nao_localizados_inserido=[],
+                    labels_tentativas=[],
+                    serie_tentativas_total=[],
+                    serie_tentativas_encontrado=[],
+                    labels_achados=[],
+                    serie_achados=[],
+                    achados_mes=[]
+                )
+
+            # =========================
+            # 1) Cards (baseado no localizado)
+            # =========================
+            cur.execute("""
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = TRUE) AS localizados,
+                    COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = FALSE) AS nao_localizados
+                FROM tabela_padrao
+                WHERE TRIM(divisao) = %s
+            """, (divisao_selecionada,))
+            total, localizados, nao_localizados = cur.fetchone() or (0, 0, 0)
+
+            cards["total_registros"] = int(total or 0)
+            cards["total_localizados"] = int(localizados or 0)
+            cards["total_nao_localizados"] = int(nao_localizados or 0)
+            cards["percent_nao_localizados"] = round((cards["total_nao_localizados"] / cards["total_registros"] * 100), 2) if cards["total_registros"] > 0 else 0
+
+            # =========================
+            # 2) Evolução por inserido_em (últimos 12 meses)
+            # Localizados vs Não localizados
+            # =========================
+            cur.execute("""
+                SELECT
+                    DATE_TRUNC('day', inserido_em)::date AS dia,
+                    COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = TRUE) AS localizados,
+                    COUNT(*) FILTER (WHERE COALESCE(localizado, FALSE) = FALSE) AS nao_localizados
+                FROM tabela_padrao
+                WHERE TRIM(divisao) = %s
+                  AND inserido_em >= (CURRENT_DATE - INTERVAL '12 months')
+                GROUP BY 1
+                ORDER BY 1;
+            """, (divisao_selecionada,))
+            rows = cur.fetchall()
+
+            labels_inserido = [(r[0].strftime("%d/%m/%Y") if r[0] else "") for r in rows]
+            serie_localizados_inserido = [int(r[1] or 0) for r in rows]
+            serie_nao_localizados_inserido = [int(r[2] or 0) for r in rows]
+
+            # =========================
+            # 3) Tentativas por dia (últimos 12 meses)
+            # total tentativas e tentativas ENCONTRADO
+            # =========================
+            cur.execute("""
+                SELECT
+                    DATE_TRUNC('day', dt.criado_em)::date AS dia,
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE dt.status = 'ENCONTRADO') AS encontrados
+                FROM documento_tentativas dt
+                JOIN tabela_padrao tp ON tp.id = dt.registro_id
+                WHERE TRIM(tp.divisao) = %s
+                  AND dt.criado_em >= (CURRENT_DATE - INTERVAL '12 months')
+                GROUP BY 1
+                ORDER BY 1;
+            """, (divisao_selecionada,))
+            rows = cur.fetchall()
+
+            labels_tentativas = [(r[0].strftime("%d/%m/%Y") if r[0] else "") for r in rows]
+            serie_tentativas_total = [int(r[1] or 0) for r in rows]
+            serie_tentativas_encontrado = [int(r[2] or 0) for r in rows]
+
+            # =========================
+            # 4) Achados por data_localizacao (últimos 12 meses)
+            # =========================
+            cur.execute("""
+                SELECT
+                    data_localizacao::date AS dia,
+                    COUNT(*) AS achados
+                FROM tabela_padrao
+                WHERE TRIM(divisao) = %s
+                  AND COALESCE(localizado, FALSE) = TRUE
+                  AND data_localizacao IS NOT NULL
+                  AND data_localizacao >= (CURRENT_DATE - INTERVAL '12 months')
+                GROUP BY 1
+                ORDER BY 1;
+            """, (divisao_selecionada,))
+            rows = cur.fetchall()
+
+            labels_achados = [(r[0].strftime("%d/%m/%Y") if r[0] else "") for r in rows]
+            serie_achados = [int(r[1] or 0) for r in rows]
+
+            # =========================
+            # 5) Tabela: itens achados nos últimos 12 meses
+            # (todas as colunas + inserido_por/alterado_por)
+            # =========================
+            cur.execute("""
+                SELECT
+                    id, fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
+                    localizacao_fisica, data_registro, data_localizacao, observacoes, divisao,
+                    localizado, inserido_por, inserido_em, alterado_por, alterado_em
+                FROM tabela_padrao
+                WHERE TRIM(divisao) = %s
+                  AND COALESCE(localizado, FALSE) = TRUE
+                  AND data_localizacao IS NOT NULL
+                  AND data_localizacao >= (CURRENT_DATE - INTERVAL '12 months')
+                ORDER BY data_localizacao DESC, id DESC;
+            """, (divisao_selecionada,))
+            achados_mes = cur.fetchall()
+
+        cur.close()
+        conn.close()
+        conn = None
+
+    except Exception as e:
+        print(f"[ERRO] rota /dashboard_divisao_v2: {e}")
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+        mensagem = "Erro ao carregar dados da divisão (v2)."
+
+    return render_template(
+        'dashboard_divisao_v2.html',
+        divisoes=divisoes,
+        divisao_selecionada=divisao_selecionada,
+        mensagem=mensagem,
+        cards=cards,
+        labels_inserido=labels_inserido,
+        serie_localizados_inserido=serie_localizados_inserido,
+        serie_nao_localizados_inserido=serie_nao_localizados_inserido,
+        labels_tentativas=labels_tentativas,
+        serie_tentativas_total=serie_tentativas_total,
+        serie_tentativas_encontrado=serie_tentativas_encontrado,
+        labels_achados=labels_achados,
+        serie_achados=serie_achados,
+        achados_mes=achados_mes
+    )
 
 @app.route('/logout')
 def logout():
@@ -910,6 +1154,11 @@ def inserir_dados():
 
     registro = None
     modo = 'inserir'
+
+    
+    # ✅ PREFILL vindo do /verificar_codigo
+    codigo_prefill = (request.args.get('codigo') or '').strip()
+    notacao_prefill = (request.args.get('notacao') or '').strip()
 
     if request.method == 'POST':
         changed_by = session['user']['username']
@@ -1197,13 +1446,21 @@ def inserir_dados():
         elif 'inserir_manual' in request.form:
             try:
                 codigo = (request.form.get('codigo_referencia') or '').strip()
+                notacao = (request.form.get('notacao') or '').strip()
                 divisao = (request.form.get('divisao') or '').strip().upper()
 
-                if not codigo:
-                    flash("❌ Código de Referência é obrigatório.", "danger")
-                    return redirect(url_for('inserir_dados'))
+                # 🔴 Divisão obrigatória
                 if not divisao:
                     flash("❌ Divisão é obrigatória.", "danger")
+                    return redirect(url_for('inserir_dados'))
+
+                # 🔁 Regra XOR: ou código ou notação (exatamente um)
+                if (not codigo and not notacao):
+                    flash("❌ Informe Código de Referência OU Notação.", "danger")
+                    return redirect(url_for('inserir_dados'))
+
+                if (codigo and notacao):
+                    flash("❌ Preencha apenas um dos campos: Código de Referência OU Notação.", "danger")
                     return redirect(url_for('inserir_dados'))
 
                 data_registro = request.form.get('data_registro') or None
@@ -1225,8 +1482,8 @@ def inserir_dados():
                 dados = {
                     'fundo_colecao': request.form.get('fundo_colecao'),
                     'titulo_conteudo': request.form.get('titulo_conteudo'),
-                    'codigo_referencia': codigo,
-                    'notacao': request.form.get('notacao'),
+                    'codigo_referencia': codigo if codigo else None,
+                    'notacao': notacao if notacao else None,
                     'localizacao_fisica': request.form.get('localizacao_fisica'),
                     'data_registro': data_registro,
                     'data_localizacao': data_localizacao,
@@ -1276,7 +1533,8 @@ def inserir_dados():
                         entity_id=None,
                         action="INSERIR_OU_ATUALIZAR_MANUAL",
                         details={
-                            "codigo_referencia": codigo,
+                            "codigo_referencia": codigo if codigo else None,
+                            "notacao": notacao if notacao else None,
                             "divisao": divisao,
                             "localizado": bool(localizado),
                             "origem": "FORM_MANUAL"
@@ -1293,25 +1551,31 @@ def inserir_dados():
                 flash(f"❌ Erro ao inserir registro: {e}", "danger")
                 return redirect(url_for('inserir_dados'))
 
+
         # ==========================================================
         # ✅ fallback (garante que nunca retorna None)
         # ==========================================================
         flash("⚠️ Nenhuma ação reconhecida no formulário.", "warning")
         return redirect(url_for('inserir_dados'))
 
-    # GET
-    # GET
+        # GET
+    # Prefill vindos das telas de verificação
     codigo_prefill = (request.args.get('codigo') or '').strip()
+    notacao_prefill = (request.args.get('notacao') or '').strip()
 
-    # se quiser, já manda uppercase pra padronizar visualmente
+    # Padroniza visualmente em maiúsculas (opcional, mas ajuda)
     if codigo_prefill:
         codigo_prefill = codigo_prefill.upper()
+    if notacao_prefill:
+        notacao_prefill = notacao_prefill.upper()
 
     return render_template(
         'inserir_dados.html',
         modo=modo,
-        codigo_prefill=codigo_prefill
+        codigo_prefill=codigo_prefill,
+        notacao_prefill=notacao_prefill
     )
+
 
 
 
@@ -2039,14 +2303,15 @@ def permissions():
 
     page_labels = {
         'home': 'Home',
+        'home_v2': 'Home versão 2',
         'search': 'Pesquisa Docjud',
         'inserir_dados': 'Inserir Dados',
         'dashboard_divisao': 'Dashboard Divisão',
         'pesquisar_divisao': 'Pesquisar Divisão',
         'editar_registro': 'Editar Registro',
         'editar': 'Editar',
-        'audit': 'Log de Auditoria',
-        'permissions': 'Permissões'
+        'permissions': 'Permissões',
+        'audit': 'Log de Auditoria'
     }
 
     # permissões por página
@@ -2336,6 +2601,7 @@ def inject_user_menu():
         # Mapeamento dos nomes exibidos no menu
         page_labels = {
             'home': 'Home',
+            'home_v2': 'Home versão 2',
             #'upload': 'Upload',
             #'search': 'Pesquisa Docjud',        
             'dashboard_bi': 'Dashboard',
@@ -2348,7 +2614,7 @@ def inject_user_menu():
             'verificar_codigo': 'Inserir registro'
             
         }
-        pages = ['home', 'pesquisar_divisao', 'verificar_codigo', 'dashboard_bi', 'insights', 'permissions', 'audit', 'permissions_audit'] #ordem das páginas no menu (peginas retirada#, 'inserir_dados', 'search',
+        pages = ['home', 'home_v2', 'pesquisar_divisao', 'verificar_codigo', 'dashboard_bi', 'insights', 'permissions', 'permissions_audit', 'audit'] #ordem das páginas no menu (peginas retirada#, 'inserir_dados', 'search',
         menu = []
         for page in pages:
             if page == 'permissions' and session['user']['is_admin'] != 1:
@@ -2571,30 +2837,54 @@ def verificar_codigo():
 
     registro = None
     codigo = None
+    notacao = None
     nao_encontrado = False
+    tipo_busca = None  # "codigo" ou "notacao"
 
     if request.method == 'POST':
         codigo = (request.form.get('codigo_referencia') or '').strip()
+        notacao = (request.form.get('notacao') or '').strip()
 
-        if not codigo:
-            flash("❌ Informe um Código de Referência.", "danger")
+        # ✅ valida: precisa ter pelo menos um
+        if not codigo and not notacao:
+            flash("❌ Informe um Código de Referência ou uma Notação.", "danger")
             return redirect(url_for('verificar_codigo'))
-
-        # padroniza busca para evitar problema de maiúscula/minúscula
-        codigo_busca = codigo.upper()
 
         conn = config.get_pg_connection()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia,
-                   notacao, localizacao_fisica, data_registro,
-                   data_localizacao, observacoes, divisao, localizado
-            FROM tabela_padrao
-            WHERE UPPER(TRIM(codigo_referencia)) = %s
-        """, (codigo_busca,))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
+
+        try:
+            if codigo:
+                tipo_busca = "codigo"
+                codigo_busca = codigo.upper()
+
+                cur.execute("""
+                    SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
+                           localizacao_fisica, data_registro, data_localizacao, observacoes, divisao, localizado
+                    FROM tabela_padrao
+                    WHERE UPPER(TRIM(codigo_referencia)) = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (codigo_busca,))
+
+            else:
+                tipo_busca = "notacao"
+                notacao_busca = notacao.upper()
+
+                cur.execute("""
+                    SELECT id, fundo_colecao, titulo_conteudo, codigo_referencia, notacao,
+                           localizacao_fisica, data_registro, data_localizacao, observacoes, divisao, localizado
+                    FROM tabela_padrao
+                    WHERE UPPER(TRIM(notacao)) = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (notacao_busca,))
+
+            row = cur.fetchone()
+
+        finally:
+            cur.close()
+            conn.close()
 
         if row:
             registro = {
@@ -2612,14 +2902,20 @@ def verificar_codigo():
             }
         else:
             nao_encontrado = True
-            flash("ℹ️ Código não encontrado. Você pode inserir um novo registro com esse código.", "warning")
+            if tipo_busca == "codigo":
+                flash("ℹ️ Código não encontrado. Você pode inserir um novo registro com esse código.", "warning")
+            else:
+                flash("ℹ️ Notação não encontrada. Você pode inserir um novo registro com essa notação.", "warning")
 
     return render_template(
         'verificar_codigo.html',
         registro=registro,
         codigo=codigo,
+        notacao=notacao,
+        tipo_busca=tipo_busca,
         nao_encontrado=nao_encontrado
     )
+
 
 
 

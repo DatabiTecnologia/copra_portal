@@ -1,16 +1,16 @@
-{% extends "base.html" %} 
-{% block title %}Verificar Código{% endblock %}
+{% extends "base.html" %}
+{% block title %}Verificar Código / Notação{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
   <div class="card shadow-sm border-0 rounded-3">
     <div class="card-header bg-primary text-white">
-      <h4 class="mb-0">🔎 Verificar Código de Referência</h4>
+      <h4 class="mb-0">🔎 Verificar Registro</h4>
     </div>
 
     <div class="card-body">
       <form method="POST" class="row g-3 align-items-end">
-        <div class="col-md-8">
+        <div class="col-md-5">
           <label class="form-label fw-semibold">Código de Referência</label>
           <input
             type="text"
@@ -18,15 +18,24 @@
             class="form-control"
             placeholder="Ex: BR_RJANRIO_R0_TESTE001"
             value="{{ codigo or '' }}"
-            required
           >
-          <div class="form-text">
-            A busca não diferencia letras maiúsculas e minúsculas.
-          </div>
+          <div class="form-text">Busca não diferencia maiúsculas/minúsculas.</div>
         </div>
 
-        <div class="col-md-4">
-          <button type="submit" class="btn btn-success w-90">
+        <div class="col-md-5">
+          <label class="form-label fw-semibold">Notação</label>
+          <input
+            type="text"
+            name="notacao"
+            class="form-control"
+            placeholder="Ex: Livro 2-A"
+            value="{{ notacao or '' }}"
+          >
+          <div class="form-text">Pode preencher Código OU Notação.</div>
+        </div>
+
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-success w-100">
             🔍 Buscar
           </button>
         </div>
@@ -34,77 +43,38 @@
 
       <hr class="my-4">
 
-      <!-- ✅ Resultado da busca -->
       {% if registro %}
-        <div class="alert alert-success d-flex justify-content-between align-items-center">
-          <div>
-            ✅ Código encontrado: <strong>{{ registro.codigo_referencia }}</strong>
-          </div>
-
-          <a href="{{ url_for('editar_registro', id=registro.id) }}" class="btn btn-outline-warning btn-sm">
-            ✏️ Editar registro
-          </a>
+        <div class="alert alert-success">
+          ✅ Registro encontrado! Você pode editar.
         </div>
 
-        <!-- (Opcional) resumo do registro encontrado -->
-        <div class="table-responsive">
-          <table class="table table-sm table-bordered align-middle mb-0">
-            <tbody>
-              <tr>
-                <th style="width: 220px;">ID</th>
-                <td>{{ registro.id }}</td>
-              </tr>
-              <tr>
-                <th>Título / Conteúdo</th>
-                <td>{{ registro.titulo_conteudo or '' }}</td>
-              </tr>
-              <tr>
-                <th>Divisão</th>
-                <td>{{ registro.divisao or '' }}</td>
-              </tr>
-              <tr>
-                <th>Localizado?</th>
-                <td>
-                  {% if registro.localizado %}
-                    <span class="badge bg-success">Encontrado</span>
-                  {% else %}
-                    <span class="badge bg-danger">Não encontrado</span>
-                  {% endif %}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-      {% elif nao_encontrado and codigo %}
-        <div class="alert alert-warning d-flex justify-content-between align-items-center">
-          <div>
-            ❌ Código não encontrado: <strong>{{ codigo }}</strong>
-          </div>
-
-          <!-- ✅ botão novo: cria registro com o código já preenchido -->
-          <a class="btn btn-success btn-sm"
-             href="{{ url_for('inserir_dados') }}?codigo={{ codigo|urlencode }}">
-            ➕ Inserir novo registro
-          </a>
-        </div>
-
-        <div class="text-muted">
-          Dica: ao abrir a tela de inserção, o código já vai vir preenchido automaticamente.
-        </div>
-      {% else %}
-        <div class="alert alert-secondary mb-0">
-          Faça a busca para verificar se o código já existe.
-        </div>
+        <a href="{{ url_for('editar_registro', id=registro.id) }}" class="btn btn-outline-warning">
+          ✏️ Editar registro #{{ registro.id }}
+        </a>
       {% endif %}
 
-      <hr class="my-4">
+      {% if nao_encontrado %}
+        <div class="alert alert-warning mt-3">
+          Nenhum registro encontrado.
+        </div>
 
-      <div class="d-flex gap-2">
+        {% if tipo_busca == 'codigo' %}
+          <a class="btn btn-primary"
+             href="{{ url_for('inserir_dados') }}?codigo={{ (codigo or '')|urlencode }}">
+            ➕ Inserir novo com esse código
+          </a>
+        {% elif tipo_busca == 'notacao' %}
+          <a class="btn btn-primary"
+             href="{{ url_for('inserir_dados') }}?notacao={{ (notacao or '')|urlencode }}">
+            ➕ Inserir novo com essa notação
+          </a>
+        {% endif %}
+      {% endif %}
+
+      <div class="d-flex gap-2 mt-4">
         <a href="{{ url_for('home') }}" class="btn btn-outline-secondary">
           ⬅️ Voltar para Home
         </a>
-
         <a href="{{ url_for('pesquisar_divisao') }}" class="btn btn-outline-primary">
           📁 Pesquisar por Divisão
         </a>

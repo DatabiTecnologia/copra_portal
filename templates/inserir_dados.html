@@ -8,22 +8,38 @@
     <!-- 🔹 Seção 1 - Inserção manual -->
     <h5 class="fw-bold text-secondary mb-3">Inserção Manual</h5>
 
-    <form method="POST" class="d-flex flex-column gap-3 mb-5">
+    <form method="POST" class="d-flex flex-column gap-3 mb-5" id="form-inserir-manual">
 
       <div class="row">
         <div class="col-md-6">
           <label class="form-label fw-semibold">Fundo / Coleção</label>
-          <input type="text" name="fundo_colecao" class="form-control" placeholder="Ex: Pretoria Cível do Rio de Janeiro, 6">
+          <input
+            type="text"
+            name="fundo_colecao"
+            class="form-control"
+            placeholder="Ex: Pretoria Cível do Rio de Janeiro, 6"
+          >
         </div>
         <div class="col-md-6">
           <label class="form-label fw-semibold">Título / Conteúdo *</label>
-          <input type="text" name="titulo_conteudo" class="form-control" placeholder="Ex: Registro Civil - 6S" required>
+          <input
+            type="text"
+            name="titulo_conteudo"
+            class="form-control"
+            placeholder="Ex: Registro Civil - 6S"
+            required
+          >
         </div>
       </div>
 
       <div class="row">
         <div class="col-md-4">
-          <label class="form-label fw-semibold">Código de Referência</label>
+          <label class="form-label fw-semibold">
+            Código de Referência
+            <span class="text-muted" style="font-size: 0.8rem;">
+              (preencha <strong>apenas um</strong>: Código <u>ou</u> Notação)
+            </span>
+          </label>
           <input
             type="text"
             name="codigo_referencia"
@@ -31,16 +47,26 @@
             placeholder="Ex: 12345"
             value="{{ codigo_prefill or '' }}"
           >
-
         </div>
 
         <div class="col-md-4">
           <label class="form-label fw-semibold">Notação</label>
-          <input type="text" name="notacao" class="form-control" placeholder="Ex: Livro 2-A">
+          <input
+            type="text"
+            name="notacao"
+            class="form-control"
+            placeholder="Ex: Livro 2-A"
+            value="{{ notacao_prefill or '' }}"
+          >
         </div>
         <div class="col-md-4">
           <label class="form-label fw-semibold">Localização Física</label>
-          <input type="text" name="localizacao_fisica" class="form-control" placeholder="Ex: Estante 4, Prateleira 2">
+          <input
+            type="text"
+            name="localizacao_fisica"
+            class="form-control"
+            placeholder="Ex: Estante 4, Prateleira 2"
+          >
         </div>
       </div>
 
@@ -67,7 +93,12 @@
 
       <div>
         <label class="form-label fw-semibold">Observações</label>
-        <textarea name="observacoes" class="form-control" rows="3" placeholder="Digite observações adicionais..."></textarea>
+        <textarea
+          name="observacoes"
+          class="form-control"
+          rows="3"
+          placeholder="Digite observações adicionais..."
+        ></textarea>
       </div>
 
       <div>
@@ -83,7 +114,11 @@
       </div>
 
       <!-- ✅ Nome do submit para ficar explícito -->
-      <button type="submit" name="inserir_manual" class="btn btn-primary align-self-start mt-3">
+      <button
+        type="submit"
+        name="inserir_manual"
+        class="btn btn-primary align-self-start mt-3"
+      >
         Inserir registro
       </button>
     </form>
@@ -126,4 +161,42 @@
       </div>
     </div>
   </div>
+
+  <!-- ✅ Script: foco + validação XOR dos campos -->
+  <script>
+    (function () {
+      const codigo = "{{ (codigo_prefill or '')|e }}";
+      const notacao = "{{ (notacao_prefill or '')|e }}";
+
+      // Foco automático
+      if (codigo) {
+        const el = document.querySelector('input[name="codigo_referencia"]');
+        if (el) el.focus();
+      } else if (notacao) {
+        const el = document.querySelector('input[name="notacao"]');
+        if (el) el.focus();
+      }
+
+      // Validação: exatamente um dos campos (código OU notação)
+      const form = document.getElementById('form-inserir-manual');
+      if (form) {
+        form.addEventListener('submit', function (e) {
+          const cod = form.querySelector('input[name="codigo_referencia"]').value.trim();
+          const nota = form.querySelector('input[name="notacao"]').value.trim();
+
+          if (!cod && !nota) {
+            e.preventDefault();
+            alert('Preencha pelo menos um dos campos: Código de Referência OU Notação.');
+            return;
+          }
+
+          if (cod && nota) {
+            e.preventDefault();
+            alert('Preencha apenas um dos campos: Código de Referência OU Notação (não os dois).');
+            return;
+          }
+        });
+      }
+    })();
+  </script>
 {% endblock %}
