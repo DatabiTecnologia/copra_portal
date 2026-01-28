@@ -112,22 +112,57 @@
               </thead>
               <tbody>
                 {% for r in achados_mes %}
-                  <tr>
+                    <tr>
                     <td><a href="{{ url_for('editar_registro', id=r[0]) }}">{{ r[0] }}</a></td>
-                    <td>{{ r[3] or '' }}</td>
-                    <td>{{ r[2] or '' }}</td>
-                    <td>{{ r[4] or '' }}</td>
-                    <td>{{ r[5] or '' }}</td>
-                    <td>{{ r[6] or '' }}</td>
-                    <td>{{ r[7] or '' }}</td>
-                    <td>{{ r[9] or '' }}</td>
-                    <td>{{ r[11] or '' }}</td>
-                    <td>{{ r[12] or '' }}</td>
-                    <td>{{ r[13] or '' }}</td>
-                    <td>{{ r[14] or '' }}</td>
-                  </tr>
+                    <td>{{ r[3] or '' }}</td>  {# Código #}
+                    <td>{{ r[2] or '' }}</td>  {# Título #}
+                    <td>{{ r[4] or '' }}</td>  {# Notação #}
+                    <td>{{ r[5] or '' }}</td>  {# Localização física #}
+
+                    {# Data Documento (data_registro - r[6]) #}
+                    <td>
+                        {% if r[6] %}
+                        {{ r[6].strftime('%d/%m/%Y') }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+
+                    {# Data Localização (data_localizacao - r[7]) #}
+                    <td>
+                        {% if r[7] %}
+                        {{ r[7].strftime('%d/%m/%Y') }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+
+                    <td>{{ r[9] or '' }}</td>   {# Divisão #}
+                    <td>{{ r[11] or '' }}</td>  {# Inserido por #}
+
+                    {# Inserido em (timestamp - r[12]) #}
+                    <td>
+                        {% if r[12] %}
+                        {{ r[12].strftime('%d/%m/%Y %H:%M') }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+
+                    <td>{{ r[13] or '' }}</td>  {# Alterado por #}
+
+                    {# Alterado em (timestamp - r[14]) #}
+                    <td>
+                        {% if r[14] %}
+                        {{ r[14].strftime('%d/%m/%Y %H:%M') }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    </tr>
                 {% endfor %}
-              </tbody>
+                </tbody>
+
             </table>
           </div>
 

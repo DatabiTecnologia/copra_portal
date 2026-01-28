@@ -86,7 +86,7 @@
         </div>
       </form>
 
-      <!-- ✅ Histórico de tentativas -->
+            <!-- ✅ Histórico de tentativas -->
       <hr class="my-4">
       <h5 class="fw-bold text-secondary mb-3">📌 Histórico de tentativas</h5>
 
@@ -99,12 +99,16 @@
                 <th>Status</th>
                 <th>Usuário</th>
                 <th>Observação</th>
+                <th class="text-center">Detalhes</th>
               </tr>
             </thead>
             <tbody>
               {% for t in tentativas %}
               <tr>
+                <!-- t[3] = criado_em -->
                 <td>{{ t[3] | br_datetime }}</td>
+
+                <!-- t[0] = status -->
                 <td>
                   {% if t[0] == 'ENCONTRADO' %}
                     <span class="badge bg-success">Encontrado</span>
@@ -114,8 +118,30 @@
                     <span class="badge bg-warning text-dark">Procurando</span>
                   {% endif %}
                 </td>
+
+                <!-- t[2] = criado_por -->
                 <td>{{ t[2] }}</td>
-                <td>{{ t[1] or '' }}</td>
+
+                <!-- t[1] = observacao (resumo) -->
+                <td>
+                  {{ (t[1] or '')[:80] }}{% if t[1] and t[1]|length > 80 %}...{% endif %}
+                </td>
+
+                <!-- 🔍 Botão Detalhes -->
+                <td class="text-center">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-primary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalDetalheTentativa"
+                    data-status="{{ t[0] }}"
+                    data-observacao="{{ t[1] or '' }}"
+                    data-usuario="{{ t[2] }}"
+                    data-data="{{ t[3] | br_datetime }}"
+                  >
+                    🔎 Detalhes
+                  </button>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
@@ -127,13 +153,42 @@
         </div>
       {% endif %}
 
-    </div>
-  </div>
-</div>
+      <!-- ✅ MODAL Detalhe da tentativa -->
+      <div class="modal fade" id="modalDetalheTentativa" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">📄 Detalhes da tentativa</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+              <dl class="row mb-0">
+                <dt class="col-sm-3">Data/Hora</dt>
+                <dd class="col-sm-9" id="detTentativaData"></dd>
+
+                <dt class="col-sm-3">Status</dt>
+                <dd class="col-sm-9" id="detTentativaStatus"></dd>
+
+                <dt class="col-sm-3">Usuário</dt>
+                <dd class="col-sm-9" id="detTentativaUsuario"></dd>
+
+                <dt class="col-sm-3">Observação</dt>
+                <dd class="col-sm-9">
+                  <pre id="detTentativaObs" class="mb-0" style="white-space: pre-wrap;"></pre>
+                </dd>
+              </dl>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
 
 <!-- ✅ MODAL Registrar tentativa -->
 <div class="modal fade" id="modalTentativa" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered"><!-- 🔥 maior: modal-xl -->
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">🧾 Registrar tentativa</h5>
@@ -142,7 +197,8 @@
 
       <div class="modal-body">
         <div class="row g-3">
-          <div class="col-md-4">
+          <!-- 🔹 Status em cima -->
+          <div class="col-12">
             <label class="form-label fw-semibold">Status</label>
             <select id="tentativaStatus" class="form-select">
               <option value="PROCURANDO" selected>Procurando</option>
@@ -151,10 +207,19 @@
             </select>
           </div>
 
-          <div class="col-md-8">
+          <!-- 🔹 Observação logo abaixo, área maior -->
+          <div class="col-12">
             <label class="form-label fw-semibold">Observação (opcional)</label>
-            <input id="tentativaObs" type="text" class="form-control"
-                   placeholder="Ex.: Procurei no armário X e caixa Y, sem sucesso.">
+            <textarea
+              id="tentativaObs"
+              class="form-control"
+              rows="5"
+              maxlength="200"
+              placeholder="Ex.: Procurei no armário X e caixa Y, sem sucesso."
+            ></textarea>
+            <div class="form-text">
+              Máximo de 200 caracteres.
+            </div>
           </div>
 
           <div class="col-12">
@@ -172,6 +237,7 @@
     </div>
   </div>
 </div>
+
 
 <script>
 async function salvarTentativa() {
@@ -207,6 +273,40 @@ async function salvarTentativa() {
     `;
   }
 }
+</script>
+<script>
+  const modalDetalheTentativa = document.getElementById('modalDetalheTentativa');
+
+  if (modalDetalheTentativa) {
+    modalDetalheTentativa.addEventListener('show.bs.modal', function (event) {
+      const button = event.relatedTarget;
+      if (!button) return;
+
+      const status = button.getAttribute('data-status') || '';
+      const observacao = button.getAttribute('data-observacao') || '';
+      const usuario = button.getAttribute('data-usuario') || '';
+      const data = button.getAttribute('data-data') || '';
+
+      // elementos do modal
+      const elData = modalDetalheTentativa.querySelector('#detTentativaData');
+      const elStatus = modalDetalheTentativa.querySelector('#detTentativaStatus');
+      const elUsuario = modalDetalheTentativa.querySelector('#detTentativaUsuario');
+      const elObs = modalDetalheTentativa.querySelector('#detTentativaObs');
+
+      if (elData) elData.textContent = data;
+      if (elUsuario) elUsuario.textContent = usuario;
+
+      if (elStatus) {
+        let label = '';
+        if (status === 'ENCONTRADO') label = 'Encontrado';
+        else if (status === 'NAO_ENCONTRADO') label = 'Não encontrado';
+        else label = 'Procurando';
+        elStatus.textContent = label + ` (${status})`;
+      }
+
+      if (elObs) elObs.textContent = observacao || '—';
+    });
+  }
 </script>
 
 {% endblock %}
