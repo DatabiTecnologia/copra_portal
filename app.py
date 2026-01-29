@@ -1264,10 +1264,10 @@ def inserir_dados():
                     flash(f"⚠️ {linhas_ignoradas} linha(s) foram ignoradas por falta de Código de Referência ou Divisão.", "warning")
 
                 # (opcional) valida divisões
-                DIVISOES_VALIDAS = {'DIJUD', 'DIPEX', 'DIPOP', 'DIDOC', 'DIDAS'}
+                DIVISOES_VALIDAS = {'DIJUD', 'DIPEX', 'DIDOP', 'DIDOC', 'DIDAS'}
                 invalidas = df[~df[col_divisao].isin(DIVISOES_VALIDAS)]
                 if not invalidas.empty:
-                    raise Exception("Planilha com divisão inválida. Use: DIJUD, DIPEX, DIPOP, DIDOC, DIDAS.")
+                    raise Exception("Planilha com divisão inválida. Use: DIJUD, DIPEX, DIDOP, DIDOC, DIDAS.")
 
                 # -----------------------------
                 # ✅ UPSERT (índice unique parcial => ON CONFLICT precisa do WHERE)
@@ -1936,7 +1936,7 @@ def editar_registro(id):
         return permission_check
 
     changed_by = session['user']['username']
-    DIVISOES_VALIDAS = {'DIJUD', 'DIPEX', 'DIPOP', 'DIDOC', 'DIDAS'}
+    DIVISOES_VALIDAS = {'DIJUD', 'DIPEX', 'DIDOP', 'DIDOC', 'DIDAS'}
 
     conn = config.get_pg_connection()
     cur = conn.cursor()
