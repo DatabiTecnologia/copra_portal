@@ -2284,21 +2284,42 @@ def permissions():
     if 'user' not in session:
         return redirect(url_for('login'))
 
+    # só admin acessa
     if session['user']['is_admin'] != 1:
         return redirect(url_for('sem_permissao'))
 
     conn = get_postgres_connection()
     cur = conn.cursor()
 
-    # usuários
-    cur.execute("SELECT username FROM users ORDER BY username")
-    all_usernames = [r[0] for r in cur.fetchall()]
+    # 🔹 usuários + department
+    # (ajuste o nome da coluna se na sua tabela for outro, ex: dept, setor etc.)
+    cur.execute("""
+        SELECT username, COALESCE(department, '')
+        FROM users
+        ORDER BY username
+    """)
+    rows = cur.fetchall()
 
-    # páginas
+    all_usernames = [r[0] for r in rows]
+    user_departments = {r[0]: r[1] for r in rows}
+    # lista única de departments não vazios, pra popular o datalist do autocomplete
+    departments = sorted({r[1] for r in rows if r[1]})
+
+    # 🔹 páginas
     pages = [
-        'home', 'search', 'inserir_dados', 'dashboard_divisao',
-        'pesquisar_divisao', 'editar_registro', 'upload',
-        'editar', 'insights', 'permissions'
+        'home',
+        'home_v2',            # se já existir a rota, já deixa aqui
+        'search',
+        'inserir_dados',
+        'dashboard_divisao',
+        'dashboard_divisao_v2',  # idem
+        'pesquisar_divisao',
+        'editar_registro',
+        'upload',
+        'editar',
+        'insights',
+        'permissions',
+        'audit'              # se tiver tela de auditoria
     ]
 
     page_labels = {
@@ -2307,23 +2328,25 @@ def permissions():
         'search': 'Pesquisa Docjud',
         'inserir_dados': 'Inserir Dados',
         'dashboard_divisao': 'Dashboard Divisão',
+        'dashboard_divisao_v2': 'Dashboard Divisão v2',
         'pesquisar_divisao': 'Pesquisar Divisão',
         'editar_registro': 'Editar Registro',
         'editar': 'Editar',
         'permissions': 'Permissões',
-        'audit': 'Log de Auditoria'
+        'audit': 'Log de Auditoria',
+        'insights': 'Insights'
     }
 
-    # permissões por página
+    # 🔹 permissões por página
     cur.execute("SELECT page, username FROM page_permissions")
     page_permissions = {}
     for page, user in cur.fetchall():
         page_permissions.setdefault(page, []).append(user)
 
-    # 🔹 divisões (AGORA FUNCIONA)
+    # 🔹 divisões (usa a função que você já tem)
     divisoes = get_divisoes()
 
-    # permissões por divisão
+    # 🔹 permissões por divisão
     cur.execute("SELECT username, divisao FROM divisao_permissions")
     divisao_permissions = [f"{u}::{d}" for u, d in cur.fetchall()]
 
@@ -2337,8 +2360,12 @@ def permissions():
         page_labels=page_labels,
         page_permissions=page_permissions,
         divisoes=divisoes,
-        divisao_permissions=divisao_permissions
+        divisao_permissions=divisao_permissions,
+        # ✅ novo: usados no filtro por department
+        user_departments=user_departments,
+        departments=departments
     )
+
 
 @app.route('/permissions/page/bulk_update', methods=['POST'])
 @login_required
@@ -3220,6 +3247,85 @@ def audit():
         entity_types=entity_types,
         actions=actions
     )
+
+@app.route('/permissions/bulk/grant_all', methods=['POST'])
+def permissions_bulk_grant_all():
+    if 'user' not in session:
+        return jsonify(success=False, message="Não autenticado"), 401
+
+    # só admin pode mexer nisso
+    if session['user']['is_admin'] != 1:
+        return jsonify(success=False, message="Sem permissão"), 403
+
+    data = request.get_json() or {}
+    usernames = data.get('usernames') or []
+
+    if not usernames:
+        return jsonify(success=False, message="Nenhum usuário informado."), 400
+
+    pages = [
+        'home',
+        'home_v2',
+        'search',
+        'inserir_dados',
+        'dashboard_divisao',
+        'dashboard_divisao_v2',
+        'pesquisar_divisao',
+        'editar_registro',
+        'upload',
+        'editar',
+        'insights',
+        'permissions',
+        'audit'
+    ]
+
+    try:
+        conn = get_postgres_connection()
+        cur = conn.cursor()
+
+        divisoes = get_divisoes()  # mesma função da rota /permissions
+
+        # páginas
+        for username in usernames:
+            for page in pages:
+                cur.execute("""
+                    INSERT INTO page_permissions (page, username)
+                    SELECT %s, %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM page_permissions
+                        WHERE page = %s AND username = %s
+                    )
+                """, (page, username, page, username))
+
+        # divisões
+        for username in usernames:
+            for divisao in divisoes:
+                cur.execute("""
+                    INSERT INTO divisao_permissions (username, divisao)
+                    SELECT %s, %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM divisao_permissions
+                        WHERE username = %s AND divisao = %s
+                    )
+                """, (username, divisao, username, divisao))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify(
+            success=True,
+            message=f"Acesso total liberado para {len(usernames)} usuário(s) (páginas + divisões)."
+        )
+
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        print("[ERRO] /permissions/bulk/grant_all ->", e)
+        return jsonify(success=False, message="Erro ao liberar acessos.")
 
 # -------------------
 if __name__ == '__main__':

@@ -22,14 +22,74 @@
 
   <h2 class="fw-bold text-primary mb-3">Painel de Permissões</h2>
 
-  <!-- BUSCA -->
+  <!-- 🔍 FILTROS -->
   <div class="row mb-3">
     <div class="col-md-4">
+      <label class="form-label fw-semibold">Buscar usuário</label>
       <input type="text"
              id="userSearch"
              class="form-control"
              placeholder="🔍 Buscar usuário..."
              oninput="applySearch()">
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Filtrar por department</label>
+      <input type="text"
+             id="deptSearch"
+             class="form-control"
+             list="deptOptions"
+             placeholder="Digite parte do department (ex: COPRA)"
+             oninput="applySearch()">
+      <datalist id="deptOptions">
+        {% for dep in departments %}
+          <option value="{{ dep }}">
+        {% endfor %}
+      </datalist>
+      <div class="form-text">
+        O filtro considera qualquer parte do texto. Ex.: "COPRA" encontra "COPRA", "COPRA-GABIN", "GABIN/COPRA"…
+      </div>
+    </div>
+
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="button"
+              class="btn btn-outline-secondary w-100"
+              onclick="clearDeptFilter()">
+        Limpar filtros
+      </button>
+    </div>
+  </div>
+
+  <!-- 🔁 AÇÃO EM MASSA POR DIVISÃO -->
+  <div class="border rounded p-3 mb-3">
+    <h5 class="fw-semibold mb-2">Ação em massa por divisão (para usuários filtrados)</h5>
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Divisão</label>
+        <select id="bulkDivisao" class="form-select">
+          <option value="">Selecione a divisão...</option>
+          {% for div in divisoes %}
+            <option value="{{ div }}">{{ div }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <button type="button"
+                class="btn btn-sm btn-outline-primary me-2"
+                onclick="aplicarDivisaoEmMassa(true)">
+          ✅ Conceder divisão para todos filtrados
+        </button>
+        <button type="button"
+                class="btn btn-sm btn-outline-danger"
+                onclick="aplicarDivisaoEmMassa(false)">
+          ❌ Remover divisão de todos filtrados
+        </button>
+      </div>
+      <div class="col-12">
+        <small class="text-muted">
+          A ação é aplicada a todos os usuários exibidos, considerando os filtros de usuário e department.
+        </small>
+      </div>
     </div>
   </div>
 
@@ -39,6 +99,8 @@
       <thead class="table-light">
         <tr>
           <th>Usuário</th>
+          <!-- Se quiser mostrar o department, descomenta abaixo -->
+          <!-- <th>Department</th> -->
 
           <!-- PÁGINAS -->
           {% for page in pages %}
@@ -60,12 +122,11 @@
 
   <!-- PAGINAÇÃO -->
   <div class="d-flex justify-content-between align-items-center mt-3">
+  <div class="d-flex gap-2">
     <button class="btn btn-outline-secondary btn-sm"
             onclick="changePage(-1)">
       ◀ Anterior
     </button>
-
-    <span id="pageInfo" class="fw-semibold"></span>
 
     <button class="btn btn-outline-secondary btn-sm"
             onclick="changePage(1)">
@@ -73,8 +134,17 @@
     </button>
   </div>
 
-  <div id="feedback" class="mt-3"></div>
+  <span id="pageInfo" class="fw-semibold"></span>
+
+  <!-- ✅ Novo: botão para liberar todos os acessos (página atual) -->
+  <button class="btn btn-success btn-sm"
+          onclick="bulkGrantAllVisible()">
+    🔓 Liberar TODOS os acessos (usuários desta página)
+  </button>
 </div>
+
+<div id="feedback" class="mt-3"></div>
+
 
 <script>
 /* =========================
@@ -85,28 +155,48 @@ const pages = {{ pages|tojson }};
 const pagePermissions = {{ page_permissions|tojson }};
 const divisoes = {{ divisoes|tojson }};
 const divisaoPermissions = {{ divisao_permissions|tojson }};
+const userDepartments = {{ user_departments|tojson }};  // {username: department}
 
 const PAGE_SIZE = 25;
 let currentPage = 1;
 
 /* =========================
-   BUSCA
+   FILTROS
 ========================= */
 function applySearch() {
   currentPage = 1;
   renderTable();
 }
 
+function clearDeptFilter() {
+  document.getElementById('userSearch').value = '';
+  document.getElementById('deptSearch').value = '';
+  currentPage = 1;
+  renderTable();
+}
+
+// retorna TODOS os usuários após aplicar os filtros de texto e department
+function getFilteredUsers() {
+  const nameFilter = document.getElementById('userSearch').value.toLowerCase();
+  const deptFilter = document.getElementById('deptSearch').value.toLowerCase();
+
+  return allUsers.filter(u => {
+    const nameMatch = !nameFilter || u.toLowerCase().includes(nameFilter);
+
+    const dept = (userDepartments[u] || '').toLowerCase();
+    const deptMatch = !deptFilter || dept.includes(deptFilter);
+
+    return nameMatch && deptMatch;
+  });
+}
+
 /* =========================
    PAGINAÇÃO
 ========================= */
-function getPagedUsers(filter = "") {
-  const filtered = allUsers.filter(u =>
-    u.toLowerCase().includes(filter)
-  );
+function getPagedUsers() {
+  const filtered = getFilteredUsers();
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-
   if (currentPage > totalPages) currentPage = totalPages;
 
   const start = (currentPage - 1) * PAGE_SIZE;
@@ -114,7 +204,8 @@ function getPagedUsers(filter = "") {
 
   return {
     users: filtered.slice(start, end),
-    totalPages
+    totalPages,
+    totalFiltered: filtered.length
   };
 }
 
@@ -128,15 +219,19 @@ function changePage(delta) {
    RENDER
 ========================= */
 function renderTable() {
-  const filter = document.getElementById('userSearch').value.toLowerCase();
   const tbody = document.getElementById("permissionsTable");
   tbody.innerHTML = "";
 
-  const { users, totalPages } = getPagedUsers(filter);
+  const { users, totalPages, totalFiltered } = getPagedUsers();
 
   users.forEach(username => {
+    let row = `<tr data-username="${username}"><td class="fw-semibold">${username}</td>`;
 
-    let row = `<tr><td class="fw-semibold">${username}</td>`;
+
+    /* Se quiser exibir o department, descomenta:
+    const dept = userDepartments[username] || '';
+    row += `<td>${dept}</td>`;
+    */
 
     /* PÁGINAS */
     pages.forEach(page => {
@@ -168,14 +263,14 @@ function renderTable() {
   });
 
   document.getElementById('pageInfo').innerText =
-    `Página ${currentPage} de ${totalPages}`;
+    `Página ${currentPage} de ${totalPages} — ${totalFiltered} usuário(s) filtrado(s)`;
 
   const overlay = document.getElementById('loadingOverlay');
   if (overlay) overlay.remove();
 }
 
 /* =========================
-   AÇÕES
+   AÇÕES INDIVIDUAIS
 ========================= */
 function togglePage(username, page, checked) {
   fetch('/permissions/page/action', {
@@ -206,15 +301,106 @@ function toggleDivisao(username, divisao, checked) {
 }
 
 /* =========================
+   AÇÃO EM MASSA - DIVISÃO
+========================= */
+function aplicarDivisaoEmMassa(grant) {
+  const divisao = document.getElementById('bulkDivisao').value;
+  if (!divisao) {
+    showFeedback({success: false, message: 'Selecione uma divisão para aplicar em massa.'});
+    return;
+  }
+
+  const usuarios = getFilteredUsers();
+  if (usuarios.length === 0) {
+    showFeedback({success: false, message: 'Nenhum usuário filtrado para aplicar a ação.'});
+    return;
+  }
+
+  if (!confirm(`Aplicar divisão "${divisao}" para ${usuarios.length} usuário(s) filtrado(s)?`)) {
+    return;
+  }
+
+  const promises = usuarios.map(username =>
+    fetch('/permissions/divisao/action', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        username,
+        divisao,
+        action: grant ? 'GRANT' : 'REMOVE'
+      })
+    }).then(r => r.json())
+  );
+
+  Promise.all(promises)
+    .then(results => {
+      const anyError = results.some(r => !r.success);
+      showFeedback({
+        success: !anyError,
+        message: anyError
+          ? 'Ação em massa concluída com alguns erros. Verifique os logs.'
+          : `Ação em massa concluída para ${usuarios.length} usuário(s).`
+      });
+      // Ideal: recarregar permissões do backend; por enquanto, recarrega a página
+      setTimeout(() => window.location.reload(), 800);
+    })
+    .catch(() => {
+      showFeedback({success: false, message: 'Erro ao executar ação em massa.'});
+    });
+}
+
+/* =========================
    FEEDBACK
 ========================= */
 function showFeedback(res){
   document.getElementById('feedback').innerHTML = `
-    <div class="alert alert-${res.success ? 'success':'danger'}">
+    <div class="alert alert-${res.success ? 'success':'danger'} mt-2 mb-0">
       ${res.message}
     </div>
   `;
 }
+/* =========================
+   AÇÃO EM MASSA - LIBERAR TODOS OS ACESSOS (PÁGINA ATUAL)
+========================= */
+function bulkGrantAllVisible() {
+  const tbody = document.getElementById("permissionsTable");
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  const usernames = rows
+    .map(tr => tr.getAttribute("data-username"))
+    .filter(Boolean);
+
+  if (!usernames.length) {
+    showFeedback({success: false, message: "Nenhum usuário na página atual."});
+    return;
+  }
+
+  if (!confirm(`Liberar TODOS os acessos (páginas + divisões) para ${usernames.length} usuário(s) da página atual?`)) {
+    return;
+  }
+
+  fetch('/permissions/bulk/grant_all', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ usernames })
+  })
+  .then(r => r.json())
+  .then(res => {
+    showFeedback(res);
+
+    // opcional: recarregar tabela para refletir as checkboxes
+    if (res.success) {
+      // recarrega do servidor ou só re-renderiza local?
+      // aqui vamos só re-renderizar, as checkboxes já estavam certas na tela,
+      // mas se quiser garantir, chama renderTable():
+      // renderTable();
+    }
+  })
+  .catch(err => {
+    console.error(err);
+    showFeedback({success: false, message: "Erro ao comunicar com o servidor."});
+  });
+}
+
 
 /* =========================
    INIT
