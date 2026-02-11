@@ -2,11 +2,46 @@
 {% block title %}Auditoria{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
+
+<style>
+  /* 🔹 Imprimir SOMENTE o card de auditoria (sem menu, sem outras telas) */
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+
+    #audit-print-container,
+    #audit-print-container * {
+      visibility: visible;
+    }
+
+    #audit-print-container {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+    }
+  }
+</style>
+
+<div class="container mt-4" id="audit-print-container">
   <div class="card shadow-sm border-0 rounded-3">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
       <h4 class="mb-0">🧾 Auditoria do Sistema</h4>
-      <span class="badge bg-light text-dark">Total: {{ total }}</span>
+
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-light text-dark">Total: {{ total }}</span>
+
+        
+        
+
+        <!-- ✅ Imprimir apenas tabela -->
+        <button type="button"
+                class="btn btn-outline-warning btn-sm"
+                onclick="printAuditTableOnly()">
+          📄 Imprimir
+        </button>
+      </div>
     </div>
 
     <div class="card-body">
@@ -62,75 +97,140 @@
         </div>
       </form>
 
-      <!-- Tabela -->
-      <div class="table-responsive">
-        <table class="table table-sm table-striped table-hover align-middle">
-          <thead class="table-light">
-            <tr>
-              <th>Data/Hora</th>
-              <th>Usuário</th>
-              <th>Entidade</th>
-              <th>ID</th>
-              <th>Ação</th>
-              <th>Detalhes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% if audits and audits|length > 0 %}
-              {% for a in audits %}
+      <!-- 🔹 Envolvi tabela + paginação num wrapper pra imprimir só isso -->
+      <div id="audit-table-wrapper">
+        <!-- Tabela -->
+        <div class="table-responsive">
+          <table class="table table-sm table-striped table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Data/Hora</th>
+                <th>Usuário</th>
+                <th>Entidade</th>
+                <th>ID</th>
+                <th>Ação</th>
+                <th>Detalhes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if audits and audits|length > 0 %}
+                {% for a in audits %}
+                  <tr>
+                    <td>{{ a.created_at }}</td>
+                    <td><span class="badge bg-secondary">{{ a.created_by }}</span></td>
+                    <td>{{ a.entity_type }}</td>
+                    <td>{{ a.entity_id if a.entity_id is not none else '' }}</td>
+                    <td><span class="badge bg-info text-dark">{{ a.action }}</span></td>
+                    <td style="max-width: 520px;">
+                      <pre class="mb-0" style="white-space: pre-wrap;">{{ a.details }}</pre>
+                    </td>
+                  </tr>
+                {% endfor %}
+              {% else %}
                 <tr>
-                  <td>{{ a.created_at }}</td>
-                  <td><span class="badge bg-secondary">{{ a.created_by }}</span></td>
-                  <td>{{ a.entity_type }}</td>
-                  <td>{{ a.entity_id if a.entity_id is not none else '' }}</td>
-                  <td><span class="badge bg-info text-dark">{{ a.action }}</span></td>
-                  <td style="max-width: 520px;">
-                    <pre class="mb-0" style="white-space: pre-wrap;">{{ a.details }}</pre>
+                  <td colspan="6">
+                    <div class="alert alert-secondary mb-0">Nenhum registro encontrado com os filtros atuais.</div>
                   </td>
                 </tr>
-              {% endfor %}
-            {% else %}
-              <tr>
-                <td colspan="6">
-                  <div class="alert alert-secondary mb-0">Nenhum registro encontrado com os filtros atuais.</div>
-                </td>
-              </tr>
-            {% endif %}
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Paginação -->
-      <nav class="d-flex justify-content-between align-items-center mt-3">
-        <div class="text-muted">
-          Página {{ page }} de {{ total_pages }} • 25 por página
+              {% endif %}
+            </tbody>
+          </table>
         </div>
 
-        <ul class="pagination mb-0">
-          {% set prev_page = page - 1 %}
-          {% set next_page = page + 1 %}
+        <!-- Paginação (entra junto na impressão de "só tabela") -->
+        <nav class="d-flex justify-content-between align-items-center mt-3">
+          <div class="text-muted">
+            Página {{ page }} de {{ total_pages }} • 25 por página
+          </div>
 
-          <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link"
-               href="{{ url_for('audit', page=prev_page, q=q, entity_type=entity_type, action=action, created_by=created_by, date_from=date_from, date_to=date_to) }}">
-              «
-            </a>
-          </li>
+          <ul class="pagination mb-0">
+            {% set prev_page = page - 1 %}
+            {% set next_page = page + 1 %}
 
-          <li class="page-item disabled">
-            <span class="page-link">{{ page }}</span>
-          </li>
+            <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+              <a class="page-link"
+                 href="{{ url_for('audit', page=prev_page, q=q, entity_type=entity_type, action=action, created_by=created_by, date_from=date_from, date_to=date_to) }}">
+                «
+              </a>
+            </li>
 
-          <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link"
-               href="{{ url_for('audit', page=next_page, q=q, entity_type=entity_type, action=action, created_by=created_by, date_from=date_from, date_to=date_to) }}">
-              »
-            </a>
-          </li>
-        </ul>
-      </nav>
+            <li class="page-item disabled">
+              <span class="page-link">{{ page }}</span>
+            </li>
+
+            <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+              <a class="page-link"
+                 href="{{ url_for('audit', page=next_page, q=q, entity_type=entity_type, action=action, created_by=created_by, date_from=date_from, date_to=date_to) }}">
+                »
+              </a>
+            </li>
+          </ul>
+        </nav>
+      </div> <!-- /audit-table-wrapper -->
 
     </div>
   </div>
 </div>
+
+<script>
+  // 🔹 Imprimir apenas a TABELA (abre nova aba só com a tabela + paginação)
+  function printAuditTableOnly() {
+    const wrapper = document.getElementById('audit-table-wrapper');
+    if (!wrapper) return;
+
+    const conteudo = wrapper.innerHTML;
+
+    const win = window.open('', '_blank');
+    win.document.write(`
+      <html>
+        <head>
+          <title>Auditoria - Tabela</title>
+          <style>
+            body {
+              font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              padding: 10px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 12px;
+            }
+            th, td {
+              border: 1px solid #ccc;
+              padding: 4px 6px;
+              vertical-align: top;
+            }
+            th {
+              background: #f8f9fa;
+            }
+            pre {
+              white-space: pre-wrap;
+              margin: 0;
+            }
+            .pagination {
+              margin-top: 10px;
+              list-style: none;
+              display: flex;
+              gap: 4px;
+              padding: 0;
+            }
+            .pagination li {
+              border: 1px solid #ccc;
+              padding: 2px 6px;
+            }
+          </style>
+        </head>
+        <body>
+          <h3>Auditoria - Registros filtrados</h3>
+          ${conteudo}
+        </body>
+      </html>
+    `);
+    win.document.close();
+    win.focus();
+    win.print();
+    win.close();
+  }
+</script>
+
 {% endblock %}
