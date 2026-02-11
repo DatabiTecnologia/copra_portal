@@ -9,29 +9,47 @@
     </div>
 
     <div class="card-body">
-      <form method="POST" class="row g-3 align-items-end">
-        <div class="col-md-5">
+      <form method="POST" class="row g-3 align-items-end" autocomplete="off">
+        <!-- CÓDIGO DE REFERÊNCIA -->
+        <div class="col-md-5 position-relative">
           <label class="form-label fw-semibold">Código de Referência</label>
           <input
             type="text"
+            id="codigo_referencia"
             name="codigo_referencia"
             class="form-control"
             placeholder="Ex: BR_RJANRIO_R0_TESTE001"
             value="{{ codigo or '' }}"
+            autocomplete="off"
           >
           <div class="form-text">Busca não diferencia maiúsculas/minúsculas.</div>
+
+          <!-- Sugestões de código -->
+          <div id="codigoSuggestions"
+               class="list-group position-absolute w-100"
+               style="z-index: 1050; max-height: 250px; overflow-y: auto; display:none;">
+          </div>
         </div>
 
-        <div class="col-md-5">
+        <!-- NOTAÇÃO -->
+        <div class="col-md-5 position-relative">
           <label class="form-label fw-semibold">Notação</label>
           <input
             type="text"
+            id="notacao"
             name="notacao"
             class="form-control"
             placeholder="Ex: Livro 2-A"
             value="{{ notacao or '' }}"
+            autocomplete="off"
           >
           <div class="form-text">Pode preencher Código OU Notação.</div>
+
+          <!-- Sugestões de notação -->
+          <div id="notacaoSuggestions"
+               class="list-group position-absolute w-100"
+               style="z-index: 1050; max-height: 250px; overflow-y: auto; display:none;">
+          </div>
         </div>
 
         <div class="col-md-2">
@@ -82,4 +100,100 @@
     </div>
   </div>
 </div>
+
+<!-- 🔽 Script de autocomplete -->
+<script>
+(function () {
+  // Helper para debouce (evitar flood no servidor)
+  function debounce(fn, delay) {
+    let timer = null;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+  }
+
+  // ====== AUTOCOMPLETE CÓDIGO ======
+  const codigoInput = document.getElementById('codigo_referencia');
+  const codigoBox   = document.getElementById('codigoSuggestions');
+
+  async function fetchCodigo(term) {
+    if (!term || term.length < 2) {
+      codigoBox.style.display = 'none';
+      codigoBox.innerHTML = '';
+      return;
+    }
+    try {
+      const resp = await fetch(`/autocomplete/codigo?q=${encodeURIComponent(term)}`);
+      if (!resp.ok) return;
+      const data = await resp.json(); // espera lista de strings
+      renderSuggestions(codigoBox, data, valor => {
+        codigoInput.value = valor;
+        codigoBox.style.display = 'none';
+      });
+    } catch (e) {
+      console.error('Erro autocomplete código:', e);
+    }
+  }
+
+  // ====== AUTOCOMPLETE NOTAÇÃO ======
+  const notacaoInput = document.getElementById('notacao');
+  const notacaoBox   = document.getElementById('notacaoSuggestions');
+
+  async function fetchNotacao(term) {
+    if (!term || term.length < 2) {
+      notacaoBox.style.display = 'none';
+      notacaoBox.innerHTML = '';
+      return;
+    }
+    try {
+      const resp = await fetch(`/autocomplete/notacao?q=${encodeURIComponent(term)}`);
+      if (!resp.ok) return;
+      const data = await resp.json(); // lista de strings
+      renderSuggestions(notacaoBox, data, valor => {
+        notacaoInput.value = valor;
+        notacaoBox.style.display = 'none';
+      });
+    } catch (e) {
+      console.error('Erro autocomplete notação:', e);
+    }
+  }
+
+  const debouncedCodigo  = debounce(e => fetchCodigo(e.target.value), 250);
+  const debouncedNotacao = debounce(e => fetchNotacao(e.target.value), 250);
+
+  if (codigoInput) {
+    codigoInput.addEventListener('input', debouncedCodigo);
+    codigoInput.addEventListener('blur', () => {
+      setTimeout(() => { codigoBox.style.display = 'none'; }, 150);
+    });
+  }
+
+  if (notacaoInput) {
+    notacaoInput.addEventListener('input', debouncedNotacao);
+    notacaoInput.addEventListener('blur', () => {
+      setTimeout(() => { notacaoBox.style.display = 'none'; }, 150);
+    });
+  }
+
+  // Render genérico de sugestões
+  function renderSuggestions(container, items, onClickItem) {
+    container.innerHTML = '';
+    if (!items || !items.length) {
+      container.style.display = 'none';
+      return;
+    }
+    items.forEach(texto => {
+      const a = document.createElement('button');
+      a.type = 'button';
+      a.className = 'list-group-item list-group-item-action';
+      a.textContent = texto;
+      a.onclick = () => onClickItem(texto);
+      container.appendChild(a);
+    });
+    container.style.display = 'block';
+  }
+
+})();
+</script>
 {% endblock %}

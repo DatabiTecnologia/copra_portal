@@ -1640,7 +1640,7 @@ def download_modelo():
     dv_localizado.promptTitle = "Localizado"
 
     # Validação: Divisão -> lista fixa
-    dv_divisao = DataValidation(type="list", formula1='"DIJUD,DIPEX,DIPOP,DIDOC,DIDAS"', allow_blank=False)
+    dv_divisao = DataValidation(type="list", formula1='"DIJUD,DIPEX,DIDOP,DIDOC,DIDAS"', allow_blank=False)
     dv_divisao.error = "Valor inválido. Selecione uma divisão da lista."
     dv_divisao.errorTitle = "Divisão"
     dv_divisao.prompt = "Selecione uma divisão."
@@ -3247,6 +3247,70 @@ def audit():
         entity_types=entity_types,
         actions=actions
     )
+
+@app.route('/autocomplete/codigo')
+def autocomplete_codigo():
+    if 'user' not in session:
+        return jsonify([])
+
+    # opcional: checar permissão de inserir_dados/verificar_codigo
+    # permission_check = require_permission('inserir_dados')
+    # if permission_check:
+    #     return jsonify([])
+
+    termo = (request.args.get('q') or '').strip()
+    if not termo or len(termo) < 2:
+        return jsonify([])
+
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+    try:
+        # busca "começa com" (pode trocar por '%termo%' se quiser conter)
+        cur.execute("""
+            SELECT DISTINCT codigo_referencia
+            FROM tabela_padrao
+            WHERE codigo_referencia IS NOT NULL
+              AND UPPER(codigo_referencia) LIKE UPPER(%s)
+            ORDER BY codigo_referencia
+            LIMIT 20;
+        """, (termo + '%',))
+        results = [r[0] for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+    return jsonify(results)
+
+
+@app.route('/autocomplete/notacao')
+def autocomplete_notacao():
+    if 'user' not in session:
+        return jsonify([])
+
+    termo = (request.args.get('q') or '').strip()
+    # mesma regra do código: só começa a sugerir a partir de 2 caracteres
+    if not termo or len(termo) < 2:
+        return jsonify([])
+
+    conn = config.get_pg_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT DISTINCT TRIM(notacao)
+            FROM tabela_padrao
+            WHERE notacao IS NOT NULL
+              AND TRIM(notacao) <> ''
+              AND UPPER(TRIM(notacao)) LIKE UPPER(%s)
+            ORDER BY TRIM(notacao)
+            LIMIT 20;
+        """, (termo + '%',))
+        results = [r[0] for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+    return jsonify(results)
+
 
 @app.route('/permissions/bulk/grant_all', methods=['POST'])
 def permissions_bulk_grant_all():

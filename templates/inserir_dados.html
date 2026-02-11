@@ -33,6 +33,7 @@
       </div>
 
       <div class="row">
+        <!-- CÓDIGO DE REFERÊNCIA -->
         <div class="col-md-4">
           <label class="form-label fw-semibold">
             Código de Referência
@@ -44,21 +45,66 @@
             type="text"
             name="codigo_referencia"
             class="form-control"
-            placeholder="Ex: 12345"
+            placeholder="Ex: BR_RJANRIO_R0_0001"
             value="{{ codigo_prefill or '' }}"
           >
         </div>
 
-        <div class="col-md-4">
-          <label class="form-label fw-semibold">Notação</label>
-          <input
-            type="text"
-            name="notacao"
-            class="form-control"
-            placeholder="Ex: Livro 2-A"
-            value="{{ notacao_prefill or '' }}"
-          >
+        <!-- BLOCO DE NOTAÇÃO ESTRUTURADA -->
+        <div class="col-md-8">
+          <label class="form-label fw-semibold d-block">
+            Notação (estruturada)
+            <span class="text-muted" style="font-size: 0.8rem;">
+              (será enviada como uma frase: Código, Número do documento, Caixa, Maço)
+            </span>
+          </label>
+
+          <div class="row g-2">
+            <div class="col-md-3">
+              <input
+                type="text"
+                id="nota_codigo"
+                class="form-control"
+                placeholder="Código"
+              >
+            </div>
+            <div class="col-md-3">
+              <input
+                type="text"
+                id="nota_numero"
+                class="form-control"
+                placeholder="Número do documento"
+              >
+            </div>
+            <div class="col-md-3">
+              <input
+                type="text"
+                id="nota_caixa"
+                class="form-control"
+                placeholder="Caixa"
+              >
+            </div>
+            <div class="col-md-3">
+              <input
+                type="text"
+                id="nota_maco"
+                class="form-control"
+                placeholder="Maço"
+              >
+            </div>
+          </div>
+
+          <!-- Campo oculto que realmente vai para o backend -->
+          <input type="hidden" name="notacao" id="hidden_notacao" value="{{ notacao_prefill or '' }}">
+
+          <div class="form-text">
+            Preencha os campos acima para gerar a notação automaticamente.  
+            Exemplo final: <code>CÓDIGO 123, DOC 5, CAIXA 2, MAÇO 1</code>
+          </div>
         </div>
+      </div>
+
+      <div class="row mt-2">
         <div class="col-md-4">
           <label class="form-label fw-semibold">Localização Física</label>
           <input
@@ -68,9 +114,7 @@
             placeholder="Ex: Estante 4, Prateleira 2"
           >
         </div>
-      </div>
 
-      <div class="row">
         <div class="col-md-4">
           <label class="form-label fw-semibold">Data do Registro</label>
           <input type="date" name="data_registro" class="form-control">
@@ -79,8 +123,10 @@
           <label class="form-label fw-semibold">Data da Localização</label>
           <input type="date" name="data_localizacao" class="form-control">
         </div>
+      </div>
 
-        <!-- ✅ NOVO: Localizado? -->
+      <div class="row mt-2">
+        <!-- ✅ Localizado? -->
         <div class="col-md-4">
           <label class="form-label fw-semibold">Localizado?</label>
           <select name="localizado" class="form-select">
@@ -162,37 +208,67 @@
     </div>
   </div>
 
-  <!-- ✅ Script: foco + validação XOR dos campos -->
+  <!-- ✅ Script: foco + montagem da notação + validação XOR -->
   <script>
     (function () {
-      const codigo = "{{ (codigo_prefill or '')|e }}";
-      const notacao = "{{ (notacao_prefill or '')|e }}";
+      const codigoPrefill = "{{ (codigo_prefill or '')|e }}";
+      const notacaoPrefill = "{{ (notacao_prefill or '')|e }}";
 
-      // Foco automático
-      if (codigo) {
-        const el = document.querySelector('input[name="codigo_referencia"]');
-        if (el) el.focus();
-      } else if (notacao) {
-        const el = document.querySelector('input[name="notacao"]');
-        if (el) el.focus();
+      const campoCodigo = document.querySelector('input[name="codigo_referencia"]');
+      const hiddenNotacao = document.getElementById('hidden_notacao');
+
+      const notaCodigo  = document.getElementById('nota_codigo');
+      const notaNumero  = document.getElementById('nota_numero');
+      const notaCaixa   = document.getElementById('nota_caixa');
+      const notaMaco    = document.getElementById('nota_maco');
+
+      // 🔹 Foco automático
+      if (codigoPrefill && campoCodigo) {
+        campoCodigo.focus();
+      } else if (notacaoPrefill) {
+        // se vier notação prefill, tentamos jogar no hidden e campo de código da notação
+        if (hiddenNotacao) hiddenNotacao.value = notacaoPrefill;
       }
 
-      // Validação: exatamente um dos campos (código OU notação)
+      // 🔹 Monta a notação a partir dos 4 campos
+      function montarNotacao() {
+        const partes = [];
+
+        const c  = (notaCodigo.value || "").trim();
+        const n  = (notaNumero.value || "").trim();
+        const cx = (notaCaixa.value || "").trim();
+        const m  = (notaMaco.value || "").trim();
+
+        if (c)  partes.push(c);
+        if (n)  partes.push(n);
+        if (cx) partes.push(cx);
+        if (m)  partes.push(m);
+
+        const notacaoFinal = partes.join(', ');
+        if (hiddenNotacao) hiddenNotacao.value = notacaoFinal;
+
+        return notacaoFinal;
+      }
+
+      // 🔹 Validação: exatamente um dos campos (Código OU Notação estruturada)
       const form = document.getElementById('form-inserir-manual');
       if (form) {
         form.addEventListener('submit', function (e) {
-          const cod = form.querySelector('input[name="codigo_referencia"]').value.trim();
-          const nota = form.querySelector('input[name="notacao"]').value.trim();
+          const cod = (campoCodigo.value || '').trim();
+          const notacaoFinal = montarNotacao();
 
-          if (!cod && !nota) {
+          const temCodigo = !!cod;
+          const temNotacao = !!notacaoFinal;
+
+          if (!temCodigo && !temNotacao) {
             e.preventDefault();
-            alert('Preencha pelo menos um dos campos: Código de Referência OU Notação.');
+            alert('Preencha pelo menos um: Código de Referência OU Notação (estrutura: Código, Número, Caixa, Maço).');
             return;
           }
 
-          if (cod && nota) {
+          if (temCodigo && temNotacao) {
             e.preventDefault();
-            alert('Preencha apenas um dos campos: Código de Referência OU Notação (não os dois).');
+            alert('Preencha apenas um dos campos: Código de Referência OU Notação estruturada (não os dois).');
             return;
           }
         });
